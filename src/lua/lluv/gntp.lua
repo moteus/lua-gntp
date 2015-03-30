@@ -141,11 +141,33 @@ local function make_key(algo, pass, salt)
 
   local salt = salt or rand_bytes(8)
 
-  local key = hash:digest('123456' .. salt)
+  local key = hash:digest(pass .. salt)
 
   local keyHash = hash:digest(key)
 
   return keyHash, salt, key
+end
+
+local function read_file(fname)
+  local f, err = io.open(fname, "rb")
+  if not f then return nil, err end
+  data = f:read("*all")
+  f:close()
+  return data
+end
+
+local function load_resurce(msg, name)
+  if true then -- file/url --! @todo how to pass raw data
+    if not name:find('^%w+://') then -- file
+      local data, err = read_file(name)
+      if not data then return nil, err end
+      name = msg:add_resource(data)
+    end
+  else -- data
+    name = msg:add_resource(name)
+  end
+
+  return name
 end
 
 local GNTPMessage = ut.class() do
@@ -250,22 +272,55 @@ function GNTPMessage:add_header(key, value)
 end
 
 function GNTPMessage:add_resource(id, data)
-  if not data then id, data = md5_digest(id), id end
-  --! @todo check for recource duplicate
+  if not data then
+    data = id
+    id = hex_encode(HASH.MD5:digest(data))
+  end
+
+  for i = 1, #self._resources do
+    local res = self._resources[i]
+    if res.Identifie == id then
+      return 'x-growl-resource://' .. id
+    end
+  end
+
   local res = {Identifier = id, [0] = data}
   self._resources[#self._resources + 1] = res
+
   return 'x-growl-resource://' .. id
 end
 
-function GNTPMessage:add_notification(name, enabled)
+function GNTPMessage:add_notification(opt)
   local note = {
-    ['Notification-Name'] = name,
-    ['Notification-Enabled'] = enabled,
+    ['Notification-Name']         = opt.name;        -- Required
+    ['Notification-Display-Name'] = opt.displayName; -- Optional (name)
+    ['Notification-Enabled']      = opt.enabled;     -- Optional (false)
   }
+
+  if opt.icon then
+    note['Notification-Icon'] = load_resurce(self, opt.icon)
+  end
+
   self._notices[#self._notices + 1] = note
 
   self:add_header('Notifications-Count', #self._notices)
   return self
+end
+
+function GNTPMessage:header(name)
+  local value = self._headers[name]
+  if not value then return end
+  local res = is_grown_res(value)
+  if res then
+    for i = 1, #self._resources do
+      local t = self._resources[id]
+      if t.Identifier == res then
+        return t[0]
+      end
+    end
+    return
+  end
+  return value
 end
 
 end
@@ -466,6 +521,7 @@ function Connector:__init(opt)
   self._enc  = opt.encrypt  or 'NONE'
   self._hash = opt.hash     or 'MD5'
   self._pass = opt.pass     or ''
+  self._icon = opt.icon
 
   return self
 end
@@ -484,7 +540,7 @@ function Connector:_send(msg, only_last, cb)
     cli:start_read(function(cli, err, data)
       if err then
         cli:close()
-        if err == EOF then cb(nil, last_msg) else cb(err) end
+        if err == EOF then cb(self, nil, last_msg) else cb(self, err) end
         return
       end
 
@@ -494,18 +550,18 @@ function Connector:_send(msg, only_last, cb)
 
       if not resp then
         cli:close()
-        return cb(err)
+        return cb(self, err)
       end
 
       if only_last then
         if resp:type() == 'END' then
-          cb(nil, last_msg)
+          cb(self, nil, last_msg)
           last_msg = nil
         else
           last_msg = resp
         end
       else
-        cb(nil, resp)
+        cb(self, nil, resp)
       end
     end)
   end)
@@ -519,9 +575,15 @@ function Connector:_send(msg, only_last, cb)
 end
 
 function Connector:_message(type)
-  return GNTPMessage.new()
+  local msg = GNTPMessage.new()
     :set_info(type, self._hash, self._enc)
     :add_header("Application-Name",  self._name)
+  if self._icon then
+    local name, err = load_resurce(msg, self._icon)
+    if not name then return nil, err end
+    msg:add_header("Application-Icon", name)
+  end
+  return msg
 end
 
 function Connector:register(notices, cb)
@@ -529,7 +591,7 @@ function Connector:register(notices, cb)
 
   for i = 1, #notices do
     local note = notices[i]
-    msg:add_notification(note.name or note[1] , not not note.enabled)
+    msg:add_notification(note)
   end
 
   self:_send(msg, true, cb)
@@ -537,15 +599,30 @@ end
 
 function Connector:notify(note, cb)
   local msg = self:_message("NOTIFY")
-    :add_header('Notification-Text',         assert(note.text))
-    :add_header('Notification-Name',         note.name     or 'Basic Notification')
-    :add_header('Notification-ID',           note.id       or '')
-    :add_header('Notification-Title',        note.title    or '')
-    :add_header('Notification-Sticky',       note.sticky   or false)
-    :add_header('Notification-Priority',     note.priority or 0)
-    :add_header('Notification-Coalescing-ID', '')
-    :add_header('Notification-Callback-Context', 'context')
-    :add_header('Notification-Callback-Context-Type', 'string')
+    :add_header('Notification-Name',                  note.name                  )
+    :add_header('Notification-Title',                 note.title                 )
+    :add_header('Notification-Text',                  note.text                  )
+    :add_header('Notification-ID',                    note.id           or ''    )
+    :add_header('Notification-Title',                 note.title        or ''    )
+    :add_header('Notification-Sticky',                note.sticky       or false )
+    :add_header('Notification-Priority',              note.priority     or 0     )
+    :add_header('Notification-Coalescing-ID',         note.coalescingID or ''    )
+    :add_header('Notification-Callback-Context',      note.callbackContext       )
+    :add_header('Notification-Callback-Context-Type', note.callbackType          )
+    :add_header('Notification-Callback-Target',       note.callbackTarget        )
+
+  if note.icon then
+    local name, err = load_resurce(msg, note.icon)
+    if not name then return nil, err end
+    msg:add_header("Notification-Icon", name)
+  end
+
+  if note.callback then
+    msg
+      :add_header('Notification-Callback-Context',      'true')
+      :add_header('Notification-Callback-Context-Type', 'boolean')
+  end
+  
   self:_send(msg, true, cb)
 end
 

@@ -11,17 +11,17 @@ local cli = GNTP.Connector.new{
 }
 
 local Notifications = {
-  {"CONNECT",    enabled = true};
-  {"DISCONNECT", enabled = true};
+  {name = "CONNECT",    enabled = true};
+  {name = "DISCONNECT", enabled = true};
 }
 
-cli:register(Notifications, function(err, msg)
+cli:register(Notifications, function(self, err, msg)
   print("Register:", err or msg:type())
-  cli:notify({
-    name = 'CONNECT';
-    text = 'User connected';
+  self:notify({
+    name  = 'CONNECT';
     title = 'Connect';
-  }, function(err, msg)
+    text  = 'User connected';
+  }, function(self, err, msg)
     print("Notify:", err or msg:type())
   end)
 end)
