@@ -3,11 +3,11 @@ Implementation of Growl Notify Transport Protocol (GNTP) for lluv library
 
 ```Lua
 local cli = GNTP.Connector.new{
-  host = '127.0.0.1';
-  port = '23053';
-  pass = '123456';
-  enc  = 'AES';
-  hash = 'SHA256';
+  host    = '127.0.0.1';
+  port    = '23053';
+  pass    = '123456';
+  encrypt = 'AES';
+  hash    = 'SHA256';
 }
 
 local Notifications = {
@@ -16,15 +16,13 @@ local Notifications = {
 }
 
 cli:register(Notifications, function(err, msg)
-  print("Result:", msg:type())
+  print("Register:", err or msg:type())
   cli:notify({
     name = 'CONNECT';
     text = 'User connected';
     title = 'Connect';
   }, function(err, msg)
-    print("Result:", msg:type())
+    print("Notify:", err or msg:type())
   end)
 end)
-
-uv.run()
 ```

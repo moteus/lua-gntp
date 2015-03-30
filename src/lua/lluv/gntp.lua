@@ -12,7 +12,6 @@
 
 local uv     = require "lluv"
 local ut     = require "lluv.utils"
-local pp     = require "pp"
 
 local ok, OpenSSL = pcall(require, "openssl")
 if not ok then OpenSSL = nil end
@@ -475,7 +474,7 @@ function Connector:_send(msg, only_last, cb)
   local parser = GNTPParser.new()
   local last_msg, encoded
 
-  uv.tcp():connect(self._host, self._port, function(cli, err)
+  local cli = uv.tcp():connect(self._host, self._port, function(cli, err)
     if err then
       cli:close()
       return cb(err)
@@ -511,7 +510,12 @@ function Connector:_send(msg, only_last, cb)
     end)
   end)
 
-  encoded = msg:encode(self._pass)
+  local err
+  encoded, err = msg:encode(self._pass)
+  if not encoded then
+    cli:close()
+    uv.defer(cb, err)
+  end
 end
 
 function Connector:_message(type)
@@ -546,11 +550,6 @@ function Connector:notify(note, cb)
 end
 
 end
-
-local cnn = Connector.new{
-  hash = 'SHA256';
-  pass = '123456';
-}
 
 local GNTP = {
   Message   = GNTPMessage;
