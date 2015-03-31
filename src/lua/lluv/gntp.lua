@@ -170,6 +170,14 @@ local function read_file(fname)
   return data
 end
 
+local function write_file(fname, data)
+  local f, err = io.open(fname, "w+b")
+  if not f then return nil, err end
+  f:write(data)
+  f:close()
+  return true
+end
+
 local function load_resurce(msg, name)
   if true then -- file/url --! @todo how to pass raw data
     if not name:find('^%w+://') then -- file
@@ -184,15 +192,59 @@ local function load_resurce(msg, name)
   return name
 end
 
+local GNTPResource = ut.class() do
+
+function GNTPResource:__init(id, data)
+  self:_set(id, data)
+  return self
+end
+
+function GNTPResource:_set(id, data)
+  if id and not data then
+    data = id
+    id = hex_encode(HASH.MD5:digest(data))
+  end
+  self._id   = id
+  self._data = data
+  return self
+end
+
+function GNTPResource:load_from_file(name)
+  local data, err = read_file(name)
+  if not data then return nil, err end
+  self:_set(data)
+  return self
+end
+
+function GNTPResource:save_to_file(name)
+  local ok, err = write_file(name, self:data())
+  if not ok then return nil, err end
+  return self
+end
+
+function GNTPResource:id()
+  return self._id
+end
+
+function GNTPResource:data()
+  return self._data
+end
+
+function GNTPResource:set(id, data)
+  return self:_set(id, data)
+end
+
+end
+
 local GNTPMessage = ut.class() do
 
-function GNTPMessage:__init()
+function GNTPMessage:__init(messageType, keyHashAlgorithmID, encryptionAlgorithmID)
   self._info = {}
   self._headers = {}
   self._notices = {}
   self._resources = {}
 
-  return self
+  return self:set_info(messageType, keyHashAlgorithmID, encryptionAlgorithmID)
 end
 
 local function append_headers(t, encrypter, headers)
@@ -203,7 +255,7 @@ end
 
 function GNTPMessage:encode(password)
   local hashAlgo, keyHash, salt, key = self._info.keyHashAlgorithmID
-  local encrypter, ivValue = ENCRYPT.NONE.encoder()
+  local encrypter, encryt, ivValue = ENCRYPT.NONE.encoder(), false
 
   if password and #password > 0 then
     if not hashAlgo then hashAlgo = 'MD5' end
@@ -224,6 +276,7 @@ function GNTPMessage:encode(password)
       ivValue = rand_bytes(enc.iv_size)
 
       encrypter = enc.encoder(key, ivValue)
+      encryt    = true
     end
   else hashAlgo = nil  end
 
@@ -244,10 +297,9 @@ function GNTPMessage:encode(password)
     t[#t + 1] = encrypter:update(EOL)
     append_headers(t, encrypter, note)
   end
-
   t[#t + 1] = encrypter:final()
 
-  t[#t + 1] = EOL
+  if encryt then t[#t + 1] = EOL end
 
   if #self._resources > 0 then
     t[#t + 1] = EOL
@@ -285,14 +337,20 @@ function GNTPMessage:type()
 end
 
 function GNTPMessage:add_header(key, value)
+  if getmetatable(value) == GNTPResource then
+    value = self:add_resource(value)
+  end
+
   self._headers[key] = value
   return self
 end
 
 function GNTPMessage:add_resource(id, data)
-  if not data then
+  if getmetatable(id) == GNTPResource then
+    id, data = id:id(), id:data()
+  elseif not data then
     data = id
-    id = hex_encode(HASH.MD5:digest(data))
+    id   = hex_encode(HASH.MD5:digest(data))
   end
 
   for i = 1, #self._resources do
@@ -640,13 +698,14 @@ function Connector:notify(note, cb)
       :add_header('Notification-Callback-Context',      'true')
       :add_header('Notification-Callback-Context-Type', 'boolean')
   end
-  
+
   self:_send(msg, true, cb)
 end
 
 end
 
 local GNTP = {
+  Resource  = GNTPResource;
   Message   = GNTPMessage;
   Parser    = GNTPParser;
   Connector = Connector;
