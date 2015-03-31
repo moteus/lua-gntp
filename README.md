@@ -10,6 +10,8 @@ local cli = GNTP.Connector.new{
   hash    = 'SHA256';
 }
 
+local icon = GNTP.Resource.load_from_file('coulson.jpg')
+
 local Notifications = {
   {name = "CONNECT",    enabled = true};
   {name = "DISCONNECT", enabled = true};
@@ -21,6 +23,7 @@ cli:register(Notifications, function(self, err, msg)
     name  = 'CONNECT';
     title = 'Connect';
     text  = 'User connected';
+    icon  = icon;
   }, function(self, err, msg)
     print("Notify:", err or msg:type())
   end)

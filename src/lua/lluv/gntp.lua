@@ -179,13 +179,12 @@ local function write_file(fname, data)
 end
 
 local function load_resurce(msg, name)
-  if true then -- file/url --! @todo how to pass raw data
-    if not name:find('^%w+://') then -- file
-      local data, err = read_file(name)
-      if not data then return nil, err end
-      name = msg:add_resource(data)
-    end
-  else -- data
+  if type(name) == "string" and not name:find('^%w+://') then
+    -- this is should be file path
+    local data, err = read_file(name)
+    if not data then return nil, err end
+    name = msg:add_resource(data)
+  else -- url / GNTPResource
     name = msg:add_resource(name)
   end
 
@@ -209,7 +208,11 @@ function GNTPResource:_set(id, data)
   return self
 end
 
-function GNTPResource:load_from_file(name)
+function GNTPResource.load_from_file(self, name)
+  if type(self) == 'string' then
+    self, name = GNTPResource.new(), self
+  end
+
   local data, err = read_file(name)
   if not data then return nil, err end
   self:_set(data)
@@ -391,7 +394,7 @@ function GNTPMessage:header(name)
     for i = 1, #self._resources do
       local t = self._resources[id]
       if t.Identifier == res then
-        return t[0]
+        return GNTPResource.new(t.Identifier, t[0])
       end
     end
     return
@@ -694,9 +697,19 @@ function Connector:notify(note, cb)
   end
 
   if note.callback then
-    msg
-      :add_header('Notification-Callback-Context',      'true')
-      :add_header('Notification-Callback-Context-Type', 'boolean')
+    if type(note.callback) == 'boolean' then
+      msg
+        :add_header('Notification-Callback-Context',      note.callback )
+        :add_header('Notification-Callback-Context-Type', 'boolean'     )
+    else
+      msg:add_header('Notification-Callback-Target',      note.callback )
+    end
+  end
+
+  if note.custom then
+    for name, value in pairs(note.custom ) do
+      msg:add_header(name, value)
+    end
   end
 
   self:_send(msg, true, cb)
