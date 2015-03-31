@@ -16,6 +16,9 @@ local ut     = require "lluv.utils"
 local ok, OpenSSL = pcall(require, "openssl")
 if not ok then OpenSSL = nil end
 
+local EOL = '\r\n'
+local EOB = EOL..EOL
+
 local HASH, ENCRYPT do
   if not OpenSSL then HASH, ENCRYPT = {}, {} else
     local Cipher = OpenSSL.cipher
@@ -30,31 +33,42 @@ local HASH, ENCRYPT do
 
     ENCRYPT = {
       AES = {
-        encoder = function(key, iv)
-          return Cipher.new('AES-192-CBC', true, key, iv, true)
-        end;
+        encoder = function(key, iv) return Cipher.new('AES-192-CBC', true,  key, iv, true) end;
+        decoder = function(key, iv) return Cipher.new('AES-192-CBC', false, key, iv, true) end;
         key_size    = 24;
         block_size  = 16;
         iv_size     = 16;
       };
       DES = {
-        encoder = function(key, iv)
-          return Cipher.new('DES-CBC', true, key, iv, true)
-        end;
+        encoder = function(key, iv) return Cipher.new('DES-CBC', true,  key, iv, true) end;
+        decoder = function(key, iv) return Cipher.new('DES-CBC', false, key, iv, true) end;
         key_size    = 8;
         block_size  = 8;
         iv_size     = 8;
       };
       ['3DES'] = {
-        encoder = function(key, iv)
-          return Cipher.new('DES3', true, key, iv, true)
-        end;
+        encoder = function(key, iv) return Cipher.new('DES3', true,  key, iv, true) end;
+        decoder = function(key, iv) return Cipher.new('DES3', false, key, iv, true) end;
         key_size    = 24;
         block_size  = 8;
         iv_size     = 8;
       };
     }
   end
+end
+
+local NoneEncrypter = ut.class() do
+function NoneEncrypter:update(str) return str end
+function NoneEncrypter:final()end
+end
+
+do local encoder = NoneEncrypter.new()
+ENCRYPT.NONE = {
+  encoder = function() return encoder end;
+  key_size    = 0;
+  block_size  = 0;
+  iv_size     = 0;
+}
 end
 
 local rand_bytes do
@@ -181,13 +195,15 @@ function GNTPMessage:__init()
   return self
 end
 
-local function append_headers(t, headers)
-  for k, v in pairs(headers) do t[#t + 1] = k .. ': ' .. tostring(v) end
+local function append_headers(t, encrypter, headers)
+  for k, v in pairs(headers) do
+    t[#t + 1] = encrypter:update(k .. ': ' .. tostring(v) .. EOL)
+  end
 end
 
 function GNTPMessage:encode(password)
   local hashAlgo, keyHash, salt, key = self._info.keyHashAlgorithmID
-  local ivValue, encrypter
+  local encrypter, ivValue = ENCRYPT.NONE.encoder()
 
   if password and #password > 0 then
     if not hashAlgo then hashAlgo = 'MD5' end
@@ -219,39 +235,41 @@ function GNTPMessage:encode(password)
     self._info.encryptionAlgorithmID,
     hex_encode(ivValue),
     hashAlgo, hex_encode(keyHash), hex_encode(salt)
-  )
+  ) .. EOL
 
-  append_headers(t, self._headers)
-  t[#t + 1] = ''
+  append_headers(t, encrypter, self._headers)
 
   for i = 1, #self._notices do
     local note = self._notices[i]
-    append_headers(t, note)
-    t[#t + 1] = ''
+    t[#t + 1] = encrypter:update(EOL)
+    append_headers(t, encrypter, note)
   end
 
-  for i = 1, #self._resources do
-    local res = self._resources[i]
-    t[#t + 1] = "Identifier: " .. res.Identifier
-    t[#t + 1] = "Length: " .. #res[0]
-    t[#t + 1] = ''
-    t[#t + 1] = res[0]
-    t[#t + 1] = ''
-  end
+  t[#t + 1] = encrypter:final()
 
-  if encrypter then
-    local encrypted = {}
-    for i = 2, #t do
-      encrypted[#encrypted + 1] = encrypter:update(t[i])
-      encrypted[#encrypted + 1] = encrypter:update('\r\n')
+  t[#t + 1] = EOL
+
+  if #self._resources > 0 then
+    t[#t + 1] = EOL
+    for i = 1, #self._resources do
+      local res = self._resources[i]
+      local a, b = encrypter:update(res[0]), encrypter:final() or ''
+
+      t[#t + 1] = "Identifier: " .. res.Identifier .. EOL
+      t[#t + 1] = "Length: " .. #a + #b .. EOL
+      t[#t + 1] = EOL
+
+      t[#t + 1] = a
+      t[#t + 1] = b
+      t[#t + 1] = EOL
     end
-    encrypted[#encrypted + 1] = encrypter:final()
-    return t[1] .. "\r\n" .. table.concat(encrypted) .. "\r\n\r\n"
   end
 
-  t[#t + 1] = ''
+  t[#t + 1] = EOL
 
-  return table.concat(t, '\r\n')
+  local msg = table.concat(t)
+
+  return msg
 end
 
 function GNTPMessage:set_info(messageType, keyHashAlgorithmID, encryptionAlgorithmID)
@@ -632,6 +650,12 @@ local GNTP = {
   Message   = GNTPMessage;
   Parser    = GNTPParser;
   Connector = Connector;
+
+  parse_request_info = parse_request_info;
+  hex_decode         = hex_decode;
+  hex_encode         = hex_encode;
+  make_key           = make_key;
+  ENCRYPT            = ENCRYPT;
 }
 
 return GNTP
