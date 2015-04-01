@@ -775,19 +775,22 @@ function Connector:__init(app, opt)
     app = Application.new(app)
   end
 
-  self._host = opt.host     or "127.0.0.1"
-  self._port = opt.port     or "23053"
-  self._enc  = opt.encrypt  or 'NONE'
-  self._hash = opt.hash     or 'MD5'
-  self._pass = opt.pass     or ''
-  self._app  = app
+  opt = opt or {}
+
+  self._host    = opt.host     or "127.0.0.1"
+  self._port    = opt.port     or "23053"
+  self._enc     = opt.encrypt  or 'NONE'
+  self._hash    = opt.hash     or 'MD5'
+  self._pass    = opt.pass     or ''
+  self._timeout = opt.timeout
+  self._app     = app
 
   return self
 end
 
 function Connector:_send(msg, only_last, cb)
   local parser = GNTPParser.new()
-  local last_msg, encoded
+  local timer, last_msg, encoded
 
   local cli = uv.tcp():connect(self._host, self._port, function(cli, err)
     if err then
@@ -799,6 +802,7 @@ function Connector:_send(msg, only_last, cb)
     cli:start_read(function(cli, err, data)
       if err then
         cli:close()
+        if timer then timer:close() end
         if err == EOF then cb(self, nil, last_msg) else cb(self, err) end
         return
       end
@@ -809,6 +813,7 @@ function Connector:_send(msg, only_last, cb)
 
       if not resp then
         cli:close()
+        if timer then timer:close() end
         return cb(self, err)
       end
 
@@ -829,8 +834,17 @@ function Connector:_send(msg, only_last, cb)
   encoded, err = msg:encode(self._pass)
   if not encoded then
     cli:close()
-    uv.defer(cb, err)
+    uv.defer(cb, self, err)
   end
+
+  if self._timeout then
+    timer = uv.timer():start(self._timeout, function()
+      timer:close()
+      cli:close()
+      cb(self, "timeout")
+    end)
+  end
+
 end
 
 function Connector:register(cb)
