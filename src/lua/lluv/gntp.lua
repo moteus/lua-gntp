@@ -372,7 +372,7 @@ end
 function GNTPMessage:add_notification(opt)
   local note = {
     ['Notification-Name']         = opt.name;        -- Required
-    ['Notification-Display-Name'] = opt.displayName; -- Optional (name)
+    ['Notification-Display-Name'] = opt.display; -- Optional (name)
     ['Notification-Enabled']      = opt.enabled;     -- Optional (false)
   }
 
@@ -589,18 +589,198 @@ end
 
 end
 
+local MessageBuilder = ut.class() do
+
+function MessageBuilder:__init()
+  self._headers = {}
+  return self
+end
+
+function MessageBuilder:add_header(key, value)
+  self._headers[key] = value
+  return self
+end
+
+function MessageBuilder:header(key)
+  return  self._headers[key]
+end
+
+function MessageBuilder:append_notify(msg, headers)
+  local t = {}
+  for k, h in pairs(headers) do
+    t[k] = self:header(h)
+  end
+
+  return msg:add_notification(t)
+end
+
+function MessageBuilder:append_header(msg, headers)
+  for i = 1, #headers do
+    local k, v = headers[i], self:header(headers[i])
+    if v then msg:add_header(k, v) end
+  end
+
+  return msg
+end
+
+end
+
+local Notification = ut.class(MessageBuilder) do
+local base = MessageBuilder
+
+function Notification:__init(note)
+  self = base.__init(self)
+
+  if type(note) == 'string' then note = {name = note} end
+
+  local i, name, title, icon = 1
+  if note.name  then name  = note.name  else name  = note[i] i = i + 1 end
+  if note.title then title = note.title else title = note[i] i = i + 1 end
+  if note.icon  then icon  = note.icon  else icon  = note[i] i = i + 1 end
+
+  self
+    :add_header('Notification-Name',         name                          )
+    :add_header('Notification-Title',        title or name                 )
+    :add_header('Notification-Display-Name', note.display or title or name )
+    :add_header('Notification-Enabled',      not not note.enabled          )
+    :add_header('Notification-Sticky',       note.sticky       or false    )
+    :add_header('Notification-Priority',     note.priority     or 0        )
+  if icon then self:add_header('Notification-Icon', icon) end
+
+  return self
+end
+
+function Notification:append_notify(msg)
+  local headers = {
+    name    = 'Notification-Name',
+    display = 'Notification-Display-Name',
+    enabled = 'Notification-Enabled',
+    icon    = 'Notification-Icon'
+  }
+  return base.append_notify(self, msg, headers)
+end
+
+function Notification:append_header(msg)
+  local headers = {
+    'Notification-Name',
+    'Notification-Title',
+    'Notification-Sticky',
+    'Notification-Priority',
+  }
+  return base.append_header(self, msg, headers)
+end
+
+function Notification:name()
+  return self:header('Notification-Name')
+end
+
+end
+
+local Application = ut.class(MessageBuilder) do
+local base = MessageBuilder
+
+function Application:__init(app)
+  self = base.__init(self)
+  self._notices = {set = {}}
+
+  if type(app) == 'string' then app = {name = app} end
+
+  self
+    :add_header('Application-Name', app.name or app[1])
+
+  if app.icon then self:add_header('Application-Icon', app.icon) end
+
+  if app.notifications then self:add_notifications(app.notifications) end
+
+  return self
+end
+
+function Application:add_notification(note)
+  if getmetatable(note) ~= Notification then
+    note = Notification.new(note)
+  end
+
+  local no = #self._notices + 1
+  self._notices[no] = note
+  self._notices.set[note:name()] = no
+
+  return self
+end
+
+function Application:add_notifications(notices)
+  for i = 1, #notices do
+    self:add_notification(notices[i])
+  end
+end
+
+function Application:get_notification(name)
+  local note
+  if name then
+    local i = self._notices.set[name]
+    if not i then return nil, 'Unknown notification: ' .. name end
+    note = assert(self._notices[i])
+  else
+    note = assert(self._notices[1])
+  end
+  return note
+end
+
+function Application:append_header(msg)
+  local headers = {
+    'Application-Name',
+    'Application-Icon',
+  }
+
+  return base.append_header(self, msg, headers)
+end
+
+function Application:register(hash, enc)
+  local msg = GNTPMessage.new('REGISTER')
+
+  base.append_header(self, msg, {
+    'Application-Name',
+    'Application-Icon',
+  })
+
+  for i = 1, #self._notices do
+    local note = self._notices[i]
+    note:append_notify(msg)
+  end
+
+  return msg
+end
+
+function Application:notify(hash, enc, name)
+  local msg = GNTPMessage.new('NOTIFY')
+
+  base.append_header(self, msg, {
+    'Application-Name',
+    'Application-Icon',
+  })
+
+  local note, err = self:get_notification(name)
+  if not note then return nil, err end
+
+  return note:append_header(msg)
+end
+
+end
+
 local Connector = ut.class() do
 
 local EOF = uv.error('LIBUV', uv.EOF)
 
-function Connector:__init(opt)
+function Connector:__init(app, opt)
+  if getmetatable(app) ~= Application then
+    app = Application.new(app)
+  end
+
   self._host = opt.host     or "127.0.0.1"
   self._port = opt.port     or "23053"
-  self._name = opt.name     or "lua-lluv-gntp"
   self._enc  = opt.encrypt  or 'NONE'
   self._hash = opt.hash     or 'MD5'
   self._pass = opt.pass     or ''
-  self._icon = opt.icon
+  self._app  = app
 
   return self
 end
@@ -653,61 +833,49 @@ function Connector:_send(msg, only_last, cb)
   end
 end
 
-function Connector:_message(type)
-  local msg = GNTPMessage.new()
-    :set_info(type, self._hash, self._enc)
-    :add_header("Application-Name",  self._name)
-  if self._icon then
-    local name, err = load_resurce(msg, self._icon)
-    if not name then return nil, err end
-    msg:add_header("Application-Icon", name)
-  end
-  return msg
-end
-
-function Connector:register(notices, cb)
-  local msg = self:_message("REGISTER")
-
-  for i = 1, #notices do
-    local note = notices[i]
-    msg:add_notification(note)
-  end
+function Connector:register(cb)
+  local msg = self._app:register(self._hash, self._enc)
 
   self:_send(msg, true, cb)
 end
 
-function Connector:notify(note, cb)
-  local msg = self:_message("NOTIFY")
-    :add_header('Notification-Name',                  note.name                  )
-    :add_header('Notification-Title',                 note.title                 )
-    :add_header('Notification-Text',                  note.text                  )
-    :add_header('Notification-ID',                    note.id           or ''    )
-    :add_header('Notification-Title',                 note.title        or ''    )
-    :add_header('Notification-Sticky',                note.sticky       or false )
-    :add_header('Notification-Priority',              note.priority     or 0     )
-    :add_header('Notification-Coalescing-ID',         note.coalescingID or ''    )
-    :add_header('Notification-Callback-Context',      note.callbackContext       )
-    :add_header('Notification-Callback-Context-Type', note.callbackType          )
-    :add_header('Notification-Callback-Target',       note.callbackTarget        )
+local function opt_add(msg, h, v)
+  if v ~= nil then msg:add_header(h, v) end
+end
 
-  if note.icon then
-    local name, err = load_resurce(msg, note.icon)
+function Connector:notify(name, opt, cb)
+  if type(opt) == 'string' then opt = {text = opt} end
+
+  local msg = assert(self._app:notify(self._hash, self._enc, name))
+
+  opt_add(msg, 'Notification-Title',                 opt.title            )
+  opt_add(msg, 'Notification-Text',                  opt.text             )
+  opt_add(msg, 'Notification-ID',                    opt.id               )
+  opt_add(msg, 'Notification-Sticky',                opt.sticky           )
+  opt_add(msg, 'Notification-Priority',              opt.priority         )
+  opt_add(msg, 'Notification-Coalescing-ID',         opt.coalescingID     )
+  opt_add(msg, 'Notification-Callback-Context',      opt.callbackContext  )
+  opt_add(msg, 'Notification-Callback-Context-Type', opt.callbackType     )
+  opt_add(msg, 'Notification-Callback-Target',       opt.callbackTarget   )
+
+  if opt.icon then
+    local name, err = load_resurce(msg, opt.icon)
     if not name then return nil, err end
     msg:add_header("Notification-Icon", name)
   end
 
-  if note.callback then
-    if type(note.callback) == 'boolean' then
+  if opt.callback then
+    if type(opt.callback) == 'boolean' then
       msg
-        :add_header('Notification-Callback-Context',      note.callback )
-        :add_header('Notification-Callback-Context-Type', 'boolean'     )
+        :add_header('Notification-Callback-Context',      opt.callback )
+        :add_header('Notification-Callback-Context-Type', 'boolean'    )
     else
-      msg:add_header('Notification-Callback-Target',      note.callback )
+      msg:add_header('Notification-Callback-Target',      opt.callback )
     end
   end
 
-  if note.custom then
-    for name, value in pairs(note.custom ) do
+  if opt.custom then
+    for name, value in pairs(opt.custom) do
       msg:add_header(name, value)
     end
   end
@@ -718,10 +886,12 @@ end
 end
 
 local GNTP = {
-  Resource  = GNTPResource;
-  Message   = GNTPMessage;
-  Parser    = GNTPParser;
-  Connector = Connector;
+  Resource     = GNTPResource;
+  Message      = GNTPMessage;
+  Parser       = GNTPParser;
+  Connector    = Connector;
+  Application  = Application;
+  Notification = Notification;
 
   parse_request_info = parse_request_info;
   hex_decode         = hex_decode;
