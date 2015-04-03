@@ -65,6 +65,7 @@ end
 do local encoder = NoneEncrypter.new()
 ENCRYPT.NONE = {
   encoder = function() return encoder end;
+  decoder = function() return encoder end;
   key_size    = 0;
   block_size  = 0;
   iv_size     = 0;
@@ -258,7 +259,8 @@ end
 
 function GNTPMessage:encode(password)
   local hashAlgo, keyHash, salt, key = self._info.keyHashAlgorithmID
-  local encrypter, encryt, ivValue = ENCRYPT.NONE.encoder(), false
+  local enc = ENCRYPT.NONE
+  local encrypter, encryt, ivValue = enc.encoder(), false
 
   if password and #password > 0 then
     if not hashAlgo then hashAlgo = 'MD5' end
@@ -266,7 +268,7 @@ function GNTPMessage:encode(password)
     if not keyHash then return nil, salt end
 
     if self._info.encryptionAlgorithmID ~= 'NONE' then
-      local enc = ENCRYPT[self._info.encryptionAlgorithmID]
+      enc = ENCRYPT[self._info.encryptionAlgorithmID]
       if not enc then
         return nil, 'unsupported encrypt algorithm: ' .. self._info.encryptionAlgorithmID
       end
@@ -305,8 +307,9 @@ function GNTPMessage:encode(password)
   if encryt then t[#t + 1] = EOL end
 
   if #self._resources > 0 then
-    t[#t + 1] = EOL
     for i = 1, #self._resources do
+      t[#t + 1] = EOL
+      encrypter = enc.encoder(key, ivValue)
       local res = self._resources[i]
       local a, b = encrypter:update(res[0]), encrypter:final() or ''
 
@@ -439,7 +442,7 @@ function GNTPParser:_check_res(val)
   return rtrim(val)
 end
 
-function GNTPParser:next_message()
+function GNTPParser:next_message(password)
   local ctx       = self._ctx
   local headers   = ctx.headers
   local notices   = ctx.notices
@@ -468,6 +471,33 @@ function GNTPParser:next_message()
     else
       ctx.state = 'header'
     end
+
+    if keyHashAlgorithmID then
+      local keyHash = hex_decode(keyHash)
+      local salt    = hex_decode(salt)
+      local etalonHash, err, encryptKey = make_key(keyHashAlgorithmID, password, salt)
+      if not etalonHash then return nil, err end
+      if keyHash ~= etalonHash then return nil, "invalid password" end
+      if encryptionAlgorithmID ~= 'NONE' and messageType ~= '-ERROR' then
+        local encrypt = ENCRYPT[encryptionAlgorithmID]
+        if not encrypt then return nil, 'unsupported encrypt algorithm: ' .. encryptionAlgorithmID end
+        local ivValue = hex_decode(ivValue)
+        ctx.decoder_ctor, ctx.decoder_key, ctx.decoder_iv = encrypt.decoder, encryptKey, ivValue
+        ctx.decrypt = true
+      end
+    end
+  end
+
+  if ctx.decrypt then
+    local encrypted = self._buf:read("*l")
+    if not encrypted then return true end
+    local decoder = ctx.decoder_ctor(ctx.decoder_key, ctx.decoder_iv)
+
+    local decrypted = decoder:update(encrypted)
+    decrypted = decrypted .. (decoder:final() or '')
+    self._buf:prepend(decrypted)
+
+    ctx.decrypt = false
   end
 
   while ctx.state == 'header' do
@@ -558,6 +588,12 @@ function GNTPParser:next_message()
       if not res[0] then
         res[0] = self._buf:read(res.Length)
         if not res[0] then return true end
+        if ctx.decrypt ~= nil then
+          local decoder = ctx.decoder_ctor(ctx.decoder_key, ctx.decoder_iv)
+          local decoded = decoder:update(res[0])
+          decoded = decoded .. (decoder:final() or '')
+          res[0]  = decoded;
+        end
       end
 
       local eol = self._buf:read(4)
@@ -567,7 +603,6 @@ function GNTPParser:next_message()
         return nil, "invalid resource eol"
       end
 
-      assert(res.Length == #res[0])
       res.Length = nil
 
       ctx.i = i + 1
