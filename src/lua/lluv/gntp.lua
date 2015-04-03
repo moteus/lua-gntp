@@ -442,6 +442,14 @@ function GNTPParser:_check_res(val)
   return rtrim(val)
 end
 
+function GNTPParser:_skip_trash()
+  while true do
+    local line = self._buf:read("*l")
+    if not line then return end
+    if line:find('^GNTP/1%.0') then return line end
+  end
+end
+
 function GNTPParser:next_message(password)
   local ctx       = self._ctx
   local headers   = ctx.headers
@@ -449,12 +457,29 @@ function GNTPParser:next_message(password)
   local resources = ctx.resources
 
   if ctx.state == 'info' then
-    local line = self._buf:read("*l")
+    local line = self:_skip_trash()
     if not line then return true end
 
     local version, messageType, encryptionAlgorithmID, ivValue,
       keyHashAlgorithmID, keyHash, salt = parse_request_info(line)
     if not version then return nil, messageType end
+
+    if password then
+      if not keyHashAlgorithmID then return nil, 'no password provided' end
+      local keyHash, salt = hex_decode(keyHash), hex_decode(salt)
+      local etalonHash, err, encryptKey = make_key(keyHashAlgorithmID, password, salt)
+      if not etalonHash then return nil, err end
+      if keyHash ~= etalonHash then return nil, "invalid password" end
+      if encryptionAlgorithmID ~= 'NONE' and messageType ~= '-ERROR' then
+        local encrypt = ENCRYPT[encryptionAlgorithmID]
+        if not encrypt then return nil, 'unsupported encrypt algorithm: ' .. encryptionAlgorithmID end
+        local ivValue = hex_decode(ivValue)
+        ctx.decoder_ctor, ctx.decoder_key, ctx.decoder_iv = encrypt.decoder, encryptKey, ivValue
+        ctx.decrypt = true
+      end
+    elseif encryptionAlgorithmID ~= 'NONE' and messageType ~= '-ERROR' then
+      return nil, 'need password to decrypt message'
+    end
 
     ctx.info = {
       version               = version,
@@ -466,26 +491,7 @@ function GNTPParser:next_message(password)
       salt                  = salt
     }
 
-    if messageType == 'END' then
-      ctx.state = 'done'
-    else
-      ctx.state = 'header'
-    end
-
-    if keyHashAlgorithmID then
-      local keyHash = hex_decode(keyHash)
-      local salt    = hex_decode(salt)
-      local etalonHash, err, encryptKey = make_key(keyHashAlgorithmID, password, salt)
-      if not etalonHash then return nil, err end
-      if keyHash ~= etalonHash then return nil, "invalid password" end
-      if encryptionAlgorithmID ~= 'NONE' and messageType ~= '-ERROR' then
-        local encrypt = ENCRYPT[encryptionAlgorithmID]
-        if not encrypt then return nil, 'unsupported encrypt algorithm: ' .. encryptionAlgorithmID end
-        local ivValue = hex_decode(ivValue)
-        ctx.decoder_ctor, ctx.decoder_key, ctx.decoder_iv = encrypt.decoder, encryptKey, ivValue
-        ctx.decrypt = true
-      end
-    end
+    ctx.state = (messageType == 'END') and 'done' or 'header'
   end
 
   if ctx.decrypt then
@@ -620,6 +626,12 @@ function GNTPParser:next_message(password)
 
   self:_reset_context()
   return msg
+end
+
+function GNTPParser:reset()
+  self._buf:reset()
+  self:_reset_context()
+  return self
 end
 
 end
