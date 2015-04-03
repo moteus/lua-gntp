@@ -23,8 +23,6 @@ local function gntp_send_recv(msg, pass, host, port)
   return msg, err
 end
 
-local icon = GNTP.Resource.load_from_file('coulson.jpg')
-
 local reg = GNTP.Message.new()
   :set_info('REGISTER', 'SHA256', 'AES')
   :add_header("Application-Name", "GNTP.LUASOCKET")
