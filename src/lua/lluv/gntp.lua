@@ -258,7 +258,7 @@ local function append_headers(t, encrypter, headers)
 end
 
 function GNTPMessage:encode(password)
-  local hashAlgo, keyHash, salt, key = self._info.keyHashAlgorithmID
+  local hashAlgo, encAlgo, keyHash, salt, key = self._info.keyHashAlgorithmID, self._info.encryptionAlgorithmID
   local enc = ENCRYPT.NONE
   local encrypter, encryt, ivValue = enc.encoder(), false
 
@@ -283,15 +283,17 @@ function GNTPMessage:encode(password)
       encrypter = enc.encoder(key, ivValue)
       encryt    = true
     end
-  else hashAlgo = nil  end
+  else
+    hashAlgo = nil
+    encAlgo  = 'NONE'
+  end
 
   local t = {}
 
   t[#t + 1] = build_request_info(
     self._info.version,
     self._info.messageType,
-    self._info.encryptionAlgorithmID,
-    hex_encode(ivValue),
+    encAlgo, hex_encode(ivValue),
     hashAlgo, hex_encode(keyHash), hex_encode(salt)
   ) .. EOL
 
