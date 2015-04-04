@@ -497,13 +497,13 @@ function GNTPParser:next_message(password)
   end
 
   if ctx.decrypt then
-    local encrypted = self._buf:read("*l")
+    local encrypted = self._buf:read_line(EOB)
     if not encrypted then return true end
     local decoder = ctx.decoder_ctor(ctx.decoder_key, ctx.decoder_iv)
 
     local decrypted = decoder:update(encrypted)
     decrypted = decrypted .. (decoder:final() or '')
-    self._buf:prepend(decrypted)
+    self._buf:prepend(EOL):prepend(decrypted)
 
     ctx.decrypt = false
   end

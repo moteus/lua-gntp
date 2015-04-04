@@ -8,19 +8,11 @@ local function gntp_send_recv(msg, pass, host, port)
 
   cli:send(msg:encode(pass))
 
-  local parser, msg, err = GNTP.Parser.new(pass)
-  while true do
-    msg, err = cli:receive("*l") -- really not safe for binary/data with `\n`
-    if not msg then break end
-    parser:append(msg):append("\r\n")
-
-    msg, err = parser:next_message()
-    if not msg then break end
-    if msg ~= true then break end
-  end
-
+  local parser, msg, err = GNTP.Parser.new(pass), cli:receive("*a")
   cli:close()
-  return msg, err
+  if not msg then return nil, err end
+
+  return parser:append(msg):next_message()
 end
 
 local reg = GNTP.Message.new()
