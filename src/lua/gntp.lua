@@ -6,11 +6,10 @@
 --
 --  Licensed according to the included 'LICENSE' document
 --
---  This file is part of lua-lluv-gntp library.
+--  This file is part of lua-gntp library.
 --
 ------------------------------------------------------------------
 
-local uv     = require "lluv"
 local ut     = require "lluv.utils"
 
 local ok, OpenSSL = pcall(require, "openssl")
@@ -955,114 +954,21 @@ end
 
 end
 
-local Connector = ut.class() do
-
-local EOF = uv.error('LIBUV', uv.EOF)
-
-function Connector:__init(app, opt)
-  if getmetatable(app) ~= Application then
-    app = Application.new(app)
-  end
-
-  opt = opt or {}
-
-  self._host    = opt.host     or "127.0.0.1"
-  self._port    = opt.port     or "23053"
-  self._enc     = opt.encrypt  or 'NONE'
-  self._hash    = opt.hash     or 'MD5'
-  self._pass    = opt.pass     or ''
-  self._timeout = opt.timeout
-  self._app     = app
-
-  return self
-end
-
-function Connector:_send(msg, only_last, cb)
-  local parser = GNTPParser.new()
-  local timer, last_msg, encoded
-
-  local cli = uv.tcp():connect(self._host, self._port, function(cli, err)
-    if err then
-      cli:close()
-      return cb(err)
-    end
-
-    cli:write(encoded)
-    cli:start_read(function(cli, err, data)
-      if err then
-        cli:close()
-        if timer then timer:close() end
-        if err == EOF then cb(self, nil, last_msg) else cb(self, err) end
-        return
-      end
-
-      local resp, err = parser:append(data):next_message()
-
-      if resp == true then return end
-
-      if not resp then
-        cli:close()
-        if timer then timer:close() end
-        return cb(self, err)
-      end
-
-      if only_last then
-        if resp:status() == 'END' then
-          cb(self, nil, last_msg)
-          last_msg = nil
-        else
-          last_msg = resp
-        end
-      else
-        cb(self, nil, resp)
-      end
-    end)
-  end)
-
-  local err
-  encoded, err = msg:encode(self._pass, self._hash, self._enc)
-  if not encoded then
-    cli:close()
-    uv.defer(cb, self, err)
-  end
-
-  if self._timeout then
-    timer = uv.timer():start(self._timeout, function()
-      timer:close()
-      cli:close()
-      cb(self, "timeout")
-    end)
-  end
-
-end
-
-function Connector:register(opt, cb)
-  if type(opt) == 'function' then opt, cb = nil, opt end
-
-  local msg = self._app:register(opt)
-
-  self:_send(msg, true, cb)
-end
-
-local function opt_add(msg, h, v)
-  if v ~= nil then msg:add_header(h, v) end
-end
-
-function Connector:notify(name, opt, cb)
-  local msg, err = self._app:notify(name, opt)
-  if not msg then uv.defer(cb, self, err)
-  else self:_send(msg, true, cb) end
-end
-
-end
+local Connector = setmetatable({},{
+  __index = function(self, name)
+    local mod = require("gntp.connector." .. name)
+    self.name = mod
+    return mod
+  end;
+})
 
 local GNTP = {
   Resource     = GNTPResource;
   Message      = GNTPMessage;
   Parser       = GNTPParser;
-  Connector    = Connector;
   Application  = Application;
   Notification = Notification;
+  Connector    = Connector;
 
   parse_request_info = parse_request_info;
   hex_decode         = hex_decode;
