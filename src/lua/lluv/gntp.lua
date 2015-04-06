@@ -192,6 +192,59 @@ local function load_resurce(msg, name)
   return name
 end
 
+local GNTPError = ut.class() do
+
+function GNTPError:__init(no, name, msg, ext)
+  self._no     = assert(no)
+  self._name   = assert(name or ERRORS[no])
+  self._msg    = msg    or ''
+  self._ext    = ext    or ''
+  self._code   = code   or 1000
+  self._reason = reason or ''
+  return self
+end
+
+function GNTPError:cat()    return 'GNTP'       end
+
+function GNTPError:no()     return self._no     end
+
+function GNTPError:name()   return self._name   end
+
+function GNTPError:msg()    return self._msg    end
+
+function GNTPError:ext()    return self._ext    end
+
+function GNTPError:__tostring()
+  local err = string.format("[%s][%s] %s (%d)",
+    self:cat(), self:name(), self:msg(), self:no()
+  )
+  if self:ext() then
+    err = string.format("%s - %s", err, self:ext())
+  end
+  return err
+end
+
+function GNTPError:__eq(rhs)
+  return self._no == rhs._no
+end
+
+end
+
+GNTPError.EPROTO = -1
+local function GNTPError_EPROTO(...)
+  return GNTPError.new(GNTPError.EPROTO, 'EPROTO', ...)
+end
+
+GNTPError.EINVAL = -2
+local function GNTPError_EINVAL(...)
+  return GNTPError.new(GNTPError.EINVAL, 'EINVAL', ...)
+end
+
+GNTPError.EAUTH = -3
+local function GNTPError_EAUTH(...)
+  return GNTPError.new(GNTPError.EAUTH, 'EAUTH', ...)
+end
+
 local GNTPResource = ut.class() do
 
 function GNTPResource:__init(id, data)
@@ -270,11 +323,11 @@ function GNTPMessage:encode(password)
     if self._info.encryptionAlgorithmID ~= 'NONE' then
       enc = ENCRYPT[self._info.encryptionAlgorithmID]
       if not enc then
-        return nil, 'unsupported encrypt algorithm: ' .. self._info.encryptionAlgorithmID
+        return nil, GNTPError_EINVAL('unsupported encrypt algorithm: ' .. self._info.encryptionAlgorithmID)
       end
 
       if #key < enc.key_size then
-        return nil, 'invalid hash algorithm for this type encryption'
+        return nil, GNTPError_EINVAL('invalid hash algorithm for this type of encryption')
       end
 
       key = key:sub(1, enc.key_size)
@@ -464,23 +517,34 @@ function GNTPParser:next_message(password)
 
     local version, messageType, encryptionAlgorithmID, ivValue,
       keyHashAlgorithmID, keyHash, salt = parse_request_info(line)
-    if not version then return nil, messageType end
+    if not version then
+      return nil, GNTPError_EPROTO(messageType, line)
+    end
 
     if password then
-      if not keyHashAlgorithmID then return nil, 'no password provided' end
+      if not keyHashAlgorithmID then
+        return nil, GNTPError_EAUTH('no password provided')
+      end
+
       local keyHash, salt = hex_decode(keyHash), hex_decode(salt)
       local etalonHash, err, encryptKey = make_key(keyHashAlgorithmID, password, salt)
-      if not etalonHash then return nil, err end
+      if not etalonHash then
+        return nil, GNTPError_EAUTH(err, keyHashAlgorithmID)
+      end
+
       if keyHash ~= etalonHash then return nil, "invalid password" end
       if encryptionAlgorithmID ~= 'NONE' and messageType ~= '-ERROR' then
         local encrypt = ENCRYPT[encryptionAlgorithmID]
-        if not encrypt then return nil, 'unsupported encrypt algorithm: ' .. encryptionAlgorithmID end
+        if not encrypt then
+          return nil, GNTPError_EAUTH('unsupported encrypt algorithm: ' .. encryptionAlgorithmID)
+        end
+
         local ivValue = hex_decode(ivValue)
         ctx.decoder_ctor, ctx.decoder_key, ctx.decoder_iv = encrypt.decoder, encryptKey, ivValue
         ctx.decrypt = true
       end
     elseif encryptionAlgorithmID ~= 'NONE' and messageType ~= '-ERROR' then
-      return nil, 'need password to decrypt message'
+      return nil, GNTPError_EPROTO('need password to decrypt message')
     end
 
     ctx.info = {
@@ -526,7 +590,9 @@ function GNTPParser:next_message(password)
     end
 
     local key, val = ut.split_first(line, "%s*:%s*")
-    if not val then return "invalid header: " .. line end
+    if not val then
+      return nil, GNTPError_EPROTO("invalid header: " .. line)
+    end
     headers[key] = self:_check_res(val)
   end
 
@@ -545,7 +611,9 @@ function GNTPParser:next_message(password)
         end
 
         local key, val = ut.split_first(line, "%s*:%s*")
-        if not val then return "invalid header: " .. line end
+        if not val then
+          return nil, GNTPError_EPROTO("invalid header: " .. line)
+        end
         note[key] = self:_check_res(val)
       end
     end
@@ -578,16 +646,16 @@ function GNTPParser:next_message(password)
         end
 
         if not res.Identifier then
-          return nil, "invalid resouce message"
+          return nil, GNTPError_EPROTO("invalid resouce message")
         end
 
         if not resources.set[res.Identifier] then
-          return nil, "unknown resource: " .. res.Identifier
+          return nil, GNTPError_EPROTO("unknown resource: " .. res.Identifier)
         end
 
         local size = tonumber(res.Length)
         if not size then
-          return nil, "invalid header Length:" .. res.Length
+          return nil, GNTPError_EPROTO("invalid header Length:" .. res.Length)
         end
 
         res.Length = size
@@ -608,7 +676,7 @@ function GNTPParser:next_message(password)
       if not eol then return true end
 
       if eol ~= '\r\n\r\n' then
-        return nil, "invalid resource eol"
+        return nil, GNTPError_EPROTO("invalid resource eol")
       end
 
       res.Length = nil
@@ -766,7 +834,7 @@ function Application:get_notification(name)
   local note
   if name then
     local i = self._notices.set[name]
-    if not i then return nil, 'Unknown notification: ' .. name end
+    if not i then return nil, GNTPError_EINVAL('Unknown notification: ' .. name) end
     note = assert(self._notices[i])
   else
     note = assert(self._notices[1])
@@ -923,7 +991,7 @@ function Connector:notify(name, opt, cb)
 
   if opt.icon then
     local name, err = load_resurce(msg, opt.icon)
-    if not name then return nil, err end
+    if not name then return nil, GNTPError_EINVAL(err, opt.icon) end
     msg:add_header("Notification-Icon", name)
   end
 
