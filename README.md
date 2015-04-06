@@ -56,8 +56,8 @@ local growl = GNTP.Connector.luasocket(app, {
 local msg, err = growl:register()
 print(err or msg:encode())
 
-local msg1, msg2 = growl:notify{'Hello from LuaSocket', callback = true}
-if not msg1 then print(err)
+local msg1, msg2 = growl:notify('CONNECT', {'User connected', callback = true})
+if not msg1 then print(msg2)
 else
   print(msg1:encode())
   print(msg2 and msg2:encode())
