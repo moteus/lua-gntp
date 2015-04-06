@@ -15,6 +15,18 @@ local function gntp_send_recv(msg, pass, host, port)
   return parser:append(msg):next_message()
 end
 
+local function register_and_notify(reg, note, ...)
+  local msg, err = gntp_send_recv(reg, ...)
+  print(msg:encode())
+  assert(msg:status() == '-OK')
+
+  local msg, err = gntp_send_recv(note, ...)
+  print(msg:encode())
+  assert(msg:status() == '-OK')
+end
+
+do -- Using Low-Level API
+
 local reg = GNTP.Message.new()
   :set_info('REGISTER', 'SHA256', 'AES')
   :add_header("Application-Name", "GNTP.LUASOCKET")
@@ -27,10 +39,22 @@ local note = GNTP.Message.new()
   :add_header("Notification-Title", "LuaSocket")
   :add_header("Notification-Text", "Hello from LuaSocket")
 
-local msg, err = gntp_send_recv(reg, "123456")
-print(msg:encode())
-assert(msg:type() == '-OK')
+register_and_notify(reg, note, '123456')
 
-local msg, err = gntp_send_recv(note, "123456")
-print(msg:encode())
-assert(msg:type() == '-OK')
+end
+
+do -- Using Application object
+
+local app = GNTP.Application.new{"GNTP.LUASOCKET",
+  notifications = {
+    {"General Notification", enabled = true}
+  }
+}
+
+local reg  = app:register()
+
+local note = app:notify('Hello from LuaSocket')
+
+register_and_notify(reg, note, '123456')
+
+end
