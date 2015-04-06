@@ -108,6 +108,8 @@ local function opt_add(msg, h, v)
 end
 
 function Connector:notify(name, opt, cb)
+  if type(opt) == 'function' then cb, opt = opt end
+
   local msg, err = self._app:notify(name, opt)
   if not msg then uv.defer(cb, self, err)
   else self:_send(msg, true, cb) end

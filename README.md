@@ -1,7 +1,7 @@
 # lua-gntp
 Implementation of Growl Notify Transport Protocol (GNTP) for Lua
 
-### Make common GNTP opjects
+### Make common GNTP objects
 ```Lua
 local icon = GNTP.Resource.load_from_file('coulson.jpg')
 
