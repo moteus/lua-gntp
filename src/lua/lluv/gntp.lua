@@ -919,7 +919,7 @@ function Application:notify(name, opt)
   if type(opt) == 'string' then opt = {text = opt} end
 
   opt_add(msg, 'Notification-Title',                 opt.title            )
-  opt_add(msg, 'Notification-Text',                  opt.text             )
+  opt_add(msg, 'Notification-Text',                  opt.text or opt[1]   )
   opt_add(msg, 'Notification-ID',                    opt.id               )
   opt_add(msg, 'Notification-Sticky',                opt.sticky           )
   opt_add(msg, 'Notification-Priority',              opt.priority         )

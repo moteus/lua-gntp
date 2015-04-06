@@ -1,49 +1,71 @@
 -- Using LuaSocket library to communicate with Growl
 local GNTP   = require "lluv.gntp"
+local ut     = require "lluv.utils"
 local socket = require "socket"
 
-local function gntp_send_recv(msg, pass, host, port)
-  local cli, err = socket.connect(host or "127.0.0.1", port or "23053")
+local Connector = ut.class() do
+
+function Connector:__init(app, opt)
+  if getmetatable(app) ~= GNTP.Application then
+    app = GNTP.Application.new(app)
+  end
+
+  opt = opt or {}
+
+  self._host    = opt.host     or "127.0.0.1"
+  self._port    = opt.port     or "23053"
+  self._enc     = opt.encrypt  or 'NONE'
+  self._hash    = opt.hash     or 'MD5'
+  self._pass    = opt.pass     or ''
+  self._timeout = opt.timeout
+  self._app     = app
+
+  return self
+end
+
+function Connector:_send(msg)
+  local cli = socket.tcp()
+
+  if socket._timeout then
+    cli:settimeout(socket._timeout)
+  end
+
+  local ok, err = cli:connect(self._host, self._port)
   if not cli then return nil, err end
 
-  cli:send(msg:encode(pass))
+  cli:send(msg:encode(self._pass, self._hash, self._enc))
 
   local parser, msg, err = GNTP.Parser.new(pass), cli:receive("*a")
   cli:close()
+
+  if not msg then return nil, err end
+  parser:append(msg)
+
+  local unpack = unpack or table.unpack
+  local res = {}
+  while true do
+    msg, err = parser:next_message()
+    if not msg then return nil, err, unpack(res) end
+    if msg == true then return unpack(res) end
+    res[#res + 1] = msg
+  end
+end
+
+function Connector:register(...)
+  local msg, err = self._app:register(...)
   if not msg then return nil, err end
 
-  return parser:append(msg):next_message()
+  return self:_send(msg, true, cb)
 end
 
-local function register_and_notify(reg, note, ...)
-  local msg, err = gntp_send_recv(reg, ...)
-  print(msg:encode())
-  assert(msg:status() == '-OK')
+function Connector:notify(...)
+  local msg, err = self._app:notify(...)
+  if not msg then return nil, err end
 
-  local msg, err = gntp_send_recv(note, ...)
-  print(msg:encode())
-  assert(msg:status() == '-OK')
+  return self:_send(msg, true, cb)
 end
 
-do -- Using Low-Level API
-
-local reg = GNTP.Message.new()
-  :set_info('REGISTER', 'SHA256', 'AES')
-  :add_header("Application-Name", "GNTP.LUASOCKET")
-  :add_notification{name = "General Notification", enabled = true}
-
-local note = GNTP.Message.new()
-  :set_info('NOTIFY', 'SHA256', 'AES')
-  :add_header("Application-Name", "GNTP.LUASOCKET")
-  :add_header("Notification-Name", "General Notification")
-  :add_header("Notification-Title", "LuaSocket")
-  :add_header("Notification-Text", "Hello from LuaSocket")
-
-register_and_notify(reg, note, '123456')
-
 end
-
-do -- Using Application object
 
 local app = GNTP.Application.new{"GNTP.LUASOCKET",
   notifications = {
@@ -51,10 +73,11 @@ local app = GNTP.Application.new{"GNTP.LUASOCKET",
   }
 }
 
-local reg  = app:register()
+local cnn = Connector.new(app, {pass = '123456'})
 
-local note = app:notify('Hello from LuaSocket')
+msg = assert(cnn:register())
+assert(msg:status() == '-OK')
 
-register_and_notify(reg, note, '123456')
-
-end
+msg1, msg2 = assert(cnn:notify{'Hello from LuaSocket', callback = true})
+assert(msg1:status() == '-OK')
+assert(msg2:status() == '-CALLBACK')
