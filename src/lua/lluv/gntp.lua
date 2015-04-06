@@ -1037,7 +1037,7 @@ function Connector:_send(msg, only_last, cb)
 end
 
 function Connector:register(opt, cb)
-  if type(opt) == 'function' then opt, cb = opt end
+  if type(opt) == 'function' then opt, cb = nil, opt end
 
   local msg = self._app:register(opt)
 
