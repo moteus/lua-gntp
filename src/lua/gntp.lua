@@ -888,12 +888,12 @@ function Application:__init(app)
   if type(app) == 'string' then app = {name = app} end
 
   self
-    :add_header('Application-Name',        app.name or app[1]  )
-    :add_header('Origin-Machine-Name',     app.machineName     )
-    :add_header('Origin-Software-Name',    app.softwareName    )
-    :add_header('Origin-Software-Version', app.softwareVersion )
-    :add_header('Origin-Platform-Name',    app.platformName    )
-    :add_header('Origin-Platform-Version', app.platformVersion )
+    :add_header('Application-Name',        app.name or app[1] or "Lua/GNTP" )
+    :add_header('Origin-Machine-Name',     app.machineName                  )
+    :add_header('Origin-Software-Name',    app.softwareName                 )
+    :add_header('Origin-Software-Version', app.softwareVersion              )
+    :add_header('Origin-Platform-Name',    app.platformName                 )
+    :add_header('Origin-Platform-Version', app.platformVersion              )
 
   if app.icon then self:add_header('Application-Icon', app.icon) end
 
