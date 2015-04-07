@@ -306,7 +306,13 @@ end
 
 local function append_headers(t, encrypter, headers)
   for k, v in pairs(headers) do
-    t[#t + 1] = encrypter:update(k .. ': ' .. tostring(v) .. EOL)
+    if k == 'Received' then
+      for _, v in ipairs(v) do
+        t[#t + 1] = encrypter:update(k .. ': ' .. tostring(v) .. EOL)
+      end
+    else
+      t[#t + 1] = encrypter:update(k .. ': ' .. tostring(v) .. EOL)
+    end
   end
 end
 
