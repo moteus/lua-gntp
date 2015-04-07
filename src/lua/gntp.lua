@@ -120,6 +120,7 @@ local function build_request_info(version, messageType, encryptionAlgorithmID, i
 end
 
 local function is_grown_res(val)
+  if type(val) ~= 'string' then return end
   return string.match(val, "^x%-growl%-resource://(%S+)%s*$")
 end
 
@@ -634,7 +635,14 @@ function GNTPParser:next_message(password)
     if not val then
       return nil, GNTPError_EPROTO("invalid header: " .. line)
     end
-    headers[key] = self:_check_res(val)
+
+    if key == 'Received' then
+      local t = headers[key] or {}
+      t[#t + 1] =  val
+      headers[key] = t
+    else
+      headers[key] = self:_check_res(val)
+    end
   end
 
   if ctx.state == 'notice' then
