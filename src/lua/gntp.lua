@@ -439,13 +439,13 @@ function GNTPMessage:add_notification(opt)
   return self
 end
 
-function GNTPMessage:header(name)
-  local value = self._headers[name]
+local function _header(self, headers, name)
+  local value = headers[name]
   if not value then return end
   local res = is_grown_res(value)
   if res then
     for i = 1, #self._resources do
-      local t = self._resources[id]
+      local t = self._resources[i]
       if t.Identifier == res then
         return GNTPResource.new(t.Identifier, t[0])
       end
@@ -453,6 +453,39 @@ function GNTPMessage:header(name)
     return
   end
   return value
+end
+
+function GNTPMessage:header(name)
+  return _header(self, self._headers, name)
+end
+
+function GNTPMessage:notification_count()
+  return #self._notices
+end
+
+function GNTPMessage:notification_header(i, name)
+  return _header(self, self._notices[i], name)
+end
+
+function GNTPMessage:to_lua_table()
+  local res = {
+    info          = self._info;
+    headers       = {};
+    notifications = {};
+  }
+
+  for k in pairs(self._headers) do
+    res.headers[k] = self:header(k)
+  end
+
+  for i = 1, #self._notices do
+    res.notifications[i] = {}
+    for k in pairs(self._notices[i]) do
+      res.notifications[i][k] = self:notification_header(i, k)
+    end
+  end
+
+  return res
 end
 
 function GNTPMessage:status()
@@ -718,6 +751,7 @@ local MessageBuilder = ut.class() do
 
 function MessageBuilder:__init()
   self._headers = {}
+  self._custom  = {}
   return self
 end
 
@@ -726,8 +760,25 @@ function MessageBuilder:add_header(key, value)
   return self
 end
 
+function MessageBuilder:add_custom_header(key, value)
+  self._custom[key] = value
+  return self
+end
+
+function MessageBuilder:remove_custom_header(key)
+  return self:add_header(key, nil)
+end
+
+function MessageBuilder:remove_header(key)
+  return self:add_header(key, nil)
+end
+
 function MessageBuilder:header(key)
   return  self._headers[key]
+end
+
+function MessageBuilder:custom_header(key)
+  return  self._custom[key]
 end
 
 function MessageBuilder:append_notify(msg, headers)
@@ -736,12 +787,21 @@ function MessageBuilder:append_notify(msg, headers)
     t[k] = self:header(h)
   end
 
+  t.custom = {}
+  for k, v in pairs(self._custom) do
+    t.custom[k] = v
+  end
+
   return msg:add_notification(t)
 end
 
 function MessageBuilder:append_header(msg, headers)
   for i = 1, #headers do
     local k, v = headers[i], self:header(headers[i])
+    if v ~= nil then msg:add_header(k, v) end
+  end
+
+  for k, v in pairs(self._custom) do
     if v ~= nil then msg:add_header(k, v) end
   end
 
@@ -777,6 +837,12 @@ function Notification:__init(note)
     :add_header('Origin-Platform-Version',   note.platformVersion          )
 
   if icon then self:add_header('Notification-Icon', icon) end
+
+  if note.custom then
+    for k, v in pairs(note.custom) do
+      self:add_custom_header(k, v)
+    end
+  end
 
   return self
 end
@@ -832,6 +898,12 @@ function Application:__init(app)
   if app.icon then self:add_header('Application-Icon', app.icon) end
 
   if app.notifications then self:add_notifications(app.notifications) end
+
+  if app.custom then
+    for k, v in pairs(app.custom) do
+      self:add_custom_header(k, v)
+    end
+  end
 
   return self
 end
