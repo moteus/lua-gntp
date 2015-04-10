@@ -10,8 +10,6 @@
 --
 ------------------------------------------------------------------
 
-local ut = require "lluv.utils"
-
 local function prequire(m)
   local ok, err = pcall(require, m)
   if ok then return err, m end
@@ -124,27 +122,6 @@ local ENCRYPT = {} if make_encrypt then
   ENCRYPT['3DES'].key_size    = 24;
   ENCRYPT['3DES'].block_size  = 8;
   ENCRYPT['3DES'].iv_size     = 8;
-end
-
-local NoneEncrypter = ut.class() do
-function NoneEncrypter:update(str) return str end
-function NoneEncrypter:final()end
-end
-
-do local encoder = NoneEncrypter.new()
-ENCRYPT.NONE = {
-  encrypt = {
-    digest = function(data) return data end;
-    new    = function() return encoder end;
-  };
-  decrypt = {
-    digest = function(data) return data end;
-    new    = function() return encoder end;
-  };
-  key_size    = 0;
-  block_size  = 0;
-  iv_size     = 0;
-}
 end
 
 return {
