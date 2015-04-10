@@ -42,25 +42,30 @@ if cryptoName == 'openssl' then
   make_hash  = function(algo)
     local hash = Digest.get(algo)
     return {
-      digest = function(data, hex) return hash:digest(data, hex) end
+      digest = function(data, hex)
+        local msg = hash:digest(data)
+        if hex then msg = crypto.hex(msg) end
+        return msg
+      end
     }
   end
 
+  local call_mt = {__call = function(self, ...) return self.digest(...) end}
   make_encrypt = function(algo)
     local ctx = Cipher.get(algo)
     return{
-      encrypt = setmetatable{
+      encrypt = setmetatable({
         digest = function(data, key, iv, pad) return ctx:encrypt(data, key, iv) end;
         new    = function(key, iv, pad) return ctx:encrypt_new(key, iv, true) end;
-      };
-      decrypt = {
-        digest = function(data, key, iv, pad) return ctx:digest(data, key, iv) end;
+      }, call_mt);
+      decrypt = setmetatable({
+        digest = function(data, key, iv, pad) return ctx:decrypt(data, key, iv) end;
         new    = function(key, iv, pad) return ctx:decrypt_new(key, iv, true) end;
-      };
+      }, call_mt);
     }
   end
 
-  rand_bytes      = crypto.random
+  rand_bytes      = function(n) return crypto.random(n, false) end
 
 elseif cryptoName == 'crypto' then
 
@@ -70,21 +75,21 @@ elseif cryptoName == 'crypto' then
     }
   end
 
+  local call_mt = {__call = function(self, ...) return self.digest(...) end}
   make_encrypt = function(algo)
     return{
-      encrypt = {
+      encrypt = setmetatable({
         digest = function(data, key, iv, pad) return crypto.encrypt(algo, data, key, iv) end;
         new    = function(key, iv, pad) return crypto.encrypt.new(algo, key, iv, true) end;
-      };
-      decrypt = {
+      }, call_mt);
+      decrypt = setmetatable({
         digest = function(data, key, iv, pad) return crypto.decrypt(algo, data, key, iv) end;
         new    = function(key, iv, pad) return crypto.decrypt.new(algo, key, iv, true) end;
-      };
+      }, call_mt);
     }
   end
 
-  rand_bytes      = crypto.rand.pseudo_bytes
-
+  rand_bytes   = crypto.rand.pseudo_bytes
 end
 
 if not rand_bytes then

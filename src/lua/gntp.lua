@@ -13,8 +13,6 @@
 local ut     = require "lluv.utils"
 local crypto = require "gntp.crypto"
 
-ENCRYPT = crypto.cipher
-
 local EOL = '\r\n'
 local EOB = EOL..EOL
 
@@ -250,8 +248,7 @@ local function append_headers(t, headers)
 end
 
 function GNTPMessage:encode(password, keyHashAlgorithmID, encryptionAlgorithmID)
-  local enc, hashAlgo, encAlgo, keyHash, salt, key = ENCRYPT.NONE
-  local encrypter, ivValue
+  local encrypt, hashAlgo, encAlgo, keyHash, salt, key, ivValue
 
   if password and #password > 0 then
     hashAlgo = (keyHashAlgorithmID or self._info.keyHashAlgorithmID or 'MD5'):upper()
@@ -260,7 +257,7 @@ function GNTPMessage:encode(password, keyHashAlgorithmID, encryptionAlgorithmID)
 
     encAlgo = (encryptionAlgorithmID or self._info.encryptionAlgorithmID or 'NONE'):upper()
     if encAlgo ~= 'NONE' then
-      enc = ENCRYPT[encAlgo]
+      local enc = crypto.cipher[encAlgo]
       if not enc then
         return nil, GNTPError_EINVAL('unsupported encrypt algorithm: ' .. self._info.encryptionAlgorithmID)
       end
@@ -269,10 +266,9 @@ function GNTPMessage:encode(password, keyHashAlgorithmID, encryptionAlgorithmID)
         return nil, GNTPError_EINVAL('invalid hash algorithm for this type of encryption')
       end
 
-      key = key:sub(1, enc.key_size)
+      key     = key:sub(1, enc.key_size)
       ivValue = crypto.rand_bytes(enc.iv_size)
-
-      encrypter = enc.encrypt
+      encrypt = enc.encrypt
     end
   else
     encAlgo, hashAlgo = 'NONE'
@@ -287,7 +283,7 @@ function GNTPMessage:encode(password, keyHashAlgorithmID, encryptionAlgorithmID)
     hashAlgo, hex_encode(keyHash), hex_encode(salt)
   ) .. EOL
 
-  local headers = encrypter and {} or t
+  local headers = encrypt and {} or t
 
   append_headers(headers, self._headers)
 
@@ -297,8 +293,8 @@ function GNTPMessage:encode(password, keyHashAlgorithmID, encryptionAlgorithmID)
     append_headers(headers, note)
   end
 
-  if encrypter then
-    t[#t + 1] = encrypter.digest(table.concat(headers), key, ivValue)
+  if encrypt then
+    t[#t + 1] = encrypt(table.concat(headers), key, ivValue)
     t[#t + 1] = EOL
   end
 
@@ -307,8 +303,8 @@ function GNTPMessage:encode(password, keyHashAlgorithmID, encryptionAlgorithmID)
       t[#t + 1] = EOL
       local res = self._resources[i]
       local dat = res[0]
-      if encrypter then
-        dat = assert(encrypter.digest(res[0], key, ivValue))
+      if encrypt then
+        dat = assert(encrypt(res[0], key, ivValue))
       end
 
       t[#t + 1] = "Identifier: " .. res.Identifier .. EOL
@@ -519,7 +515,7 @@ function GNTPParser:next_message(password)
 
       if keyHash ~= etalonHash then return nil, "invalid password" end
       if encryptionAlgorithmID ~= 'NONE' and messageType ~= '-ERROR' then
-        local enc = ENCRYPT[encryptionAlgorithmID]
+        local enc = crypto.cipher[encryptionAlgorithmID]
         if not enc then
           return nil, GNTPError_EAUTH('unsupported encrypt algorithm: ' .. encryptionAlgorithmID)
         end
@@ -551,7 +547,7 @@ function GNTPParser:next_message(password)
     local encrypted = self._buf:read_line(EOB)
     if not encrypted then return true end
 
-    local decrypted, err = ctx.decrypt.digest(encrypted, ctx.encrypt_key, ctx.iv)
+    local decrypted, err = ctx.decrypt(encrypted, ctx.encrypt_key, ctx.iv)
     if not decrypted then return nil, err end
 
     self._buf:prepend(EOL):prepend(decrypted)
