@@ -11,79 +11,12 @@
 ------------------------------------------------------------------
 
 local ut     = require "lluv.utils"
+local crypto = require "gntp.crypto"
 
-local ok, OpenSSL = pcall(require, "openssl")
-if not ok then OpenSSL = nil end
+ENCRYPT = crypto.cipher
 
 local EOL = '\r\n'
 local EOB = EOL..EOL
-
-local HASH, ENCRYPT do
-  if not OpenSSL then HASH, ENCRYPT = {}, {} else
-    local Cipher = OpenSSL.cipher
-    local Digest = OpenSSL.digest
-
-    HASH = {
-      MD5    = Digest.get('MD5');
-      SHA1   = Digest.get('SHA1');
-      SHA256 = Digest.get('SHA256');
-      SHA512 = Digest.get('SHA512');
-    }
-
-    ENCRYPT = {
-      AES = {
-        encoder = function(key, iv) return Cipher.new('AES-192-CBC', true,  key, iv, true) end;
-        decoder = function(key, iv) return Cipher.new('AES-192-CBC', false, key, iv, true) end;
-        key_size    = 24;
-        block_size  = 16;
-        iv_size     = 16;
-      };
-      DES = {
-        encoder = function(key, iv) return Cipher.new('DES-CBC', true,  key, iv, true) end;
-        decoder = function(key, iv) return Cipher.new('DES-CBC', false, key, iv, true) end;
-        key_size    = 8;
-        block_size  = 8;
-        iv_size     = 8;
-      };
-      ['3DES'] = {
-        encoder = function(key, iv) return Cipher.new('DES3', true,  key, iv, true) end;
-        decoder = function(key, iv) return Cipher.new('DES3', false, key, iv, true) end;
-        key_size    = 24;
-        block_size  = 8;
-        iv_size     = 8;
-      };
-    }
-  end
-end
-
-local NoneEncrypter = ut.class() do
-function NoneEncrypter:update(str) return str end
-function NoneEncrypter:final()end
-end
-
-do local encoder = NoneEncrypter.new()
-ENCRYPT.NONE = {
-  encoder = function() return encoder end;
-  decoder = function() return encoder end;
-  key_size    = 0;
-  block_size  = 0;
-  iv_size     = 0;
-}
-end
-
-local rand_bytes do
-  if OpenSSL then
-    rand_bytes = OpenSSL.random
-  else
-    rand_bytes = function (n)
-      local r = {}
-      for i = 1, n do
-        r[#r + 1] = string.char(math.random(0, 0xFF))
-      end
-      return table.concat(r)
-    end
-  end
-end
 
 local function parse_request_info(line)
   -- GNTP/<version> <messagetype> <encryptionAlgorithmID>[:<ivValue>][ <keyHashAlgorithmID>:<keyHash>.<salt>]
@@ -151,14 +84,14 @@ local function hex_decode(str)
 end
 
 local function make_key(algo, pass, salt)
-  local hash = HASH[algo]
+  local hash = crypto.hash[algo]
   if not hash then return nil, "unsupported hash algorithm:" .. algo end
 
-  local salt = salt or rand_bytes(8)
+  local salt = salt or crypto.rand_bytes(8)
 
-  local key = hash:digest(pass .. salt)
+  local key = hash.digest(pass .. salt)
 
-  local keyHash = hash:digest(key)
+  local keyHash = hash.digest(key)
 
   return keyHash, salt, key
 end
@@ -255,7 +188,7 @@ end
 function GNTPResource:_set(id, data)
   if id and not data then
     data = id
-    id = hex_encode(HASH.MD5:digest(data))
+    id = crypto.hash.MD5.digest(data, true)
   end
   self._id   = id
   self._data = data
@@ -304,21 +237,21 @@ function GNTPMessage:__init(messageType, keyHashAlgorithmID, encryptionAlgorithm
   return self:set_info(messageType, keyHashAlgorithmID, encryptionAlgorithmID)
 end
 
-local function append_headers(t, encrypter, headers)
+local function append_headers(t, headers)
   for k, v in pairs(headers) do
     if k == 'Received' then
       for _, v in ipairs(v) do
-        t[#t + 1] = encrypter:update(k .. ': ' .. tostring(v) .. EOL)
+        t[#t + 1] = k .. ': ' .. tostring(v) .. EOL
       end
     else
-      t[#t + 1] = encrypter:update(k .. ': ' .. tostring(v) .. EOL)
+      t[#t + 1] = k .. ': ' .. tostring(v) .. EOL
     end
   end
 end
 
 function GNTPMessage:encode(password, keyHashAlgorithmID, encryptionAlgorithmID)
   local enc, hashAlgo, encAlgo, keyHash, salt, key = ENCRYPT.NONE
-  local encrypter, encryt, ivValue = enc.encoder(), false
+  local encrypter, ivValue
 
   if password and #password > 0 then
     hashAlgo = (keyHashAlgorithmID or self._info.keyHashAlgorithmID or 'MD5'):upper()
@@ -327,7 +260,7 @@ function GNTPMessage:encode(password, keyHashAlgorithmID, encryptionAlgorithmID)
 
     encAlgo = (encryptionAlgorithmID or self._info.encryptionAlgorithmID or 'NONE'):upper()
     if encAlgo ~= 'NONE' then
-      enc = ENCRYPT[self._info.encryptionAlgorithmID]
+      enc = ENCRYPT[encAlgo]
       if not enc then
         return nil, GNTPError_EINVAL('unsupported encrypt algorithm: ' .. self._info.encryptionAlgorithmID)
       end
@@ -337,10 +270,9 @@ function GNTPMessage:encode(password, keyHashAlgorithmID, encryptionAlgorithmID)
       end
 
       key = key:sub(1, enc.key_size)
-      ivValue = rand_bytes(enc.iv_size)
+      ivValue = crypto.rand_bytes(enc.iv_size)
 
-      encrypter = enc.encoder(key, ivValue)
-      encryt    = true
+      encrypter = enc.encrypt
     end
   else
     encAlgo, hashAlgo = 'NONE'
@@ -355,30 +287,35 @@ function GNTPMessage:encode(password, keyHashAlgorithmID, encryptionAlgorithmID)
     hashAlgo, hex_encode(keyHash), hex_encode(salt)
   ) .. EOL
 
-  append_headers(t, encrypter, self._headers)
+  local headers = encrypter and {} or t
+
+  append_headers(headers, self._headers)
 
   for i = 1, #self._notices do
     local note = self._notices[i]
-    t[#t + 1] = encrypter:update(EOL)
-    append_headers(t, encrypter, note)
+    headers[#headers + 1] = EOL
+    append_headers(headers, note)
   end
-  t[#t + 1] = encrypter:final()
 
-  if encryt then t[#t + 1] = EOL end
+  if encrypter then
+    t[#t + 1] = encrypter.digest(table.concat(headers), key, ivValue)
+    t[#t + 1] = EOL
+  end
 
   if #self._resources > 0 then
     for i = 1, #self._resources do
       t[#t + 1] = EOL
-      encrypter = enc.encoder(key, ivValue)
       local res = self._resources[i]
-      local a, b = encrypter:update(res[0]), encrypter:final() or ''
+      local dat = res[0]
+      if encrypter then
+        dat = assert(encrypter.digest(res[0], key, ivValue))
+      end
 
       t[#t + 1] = "Identifier: " .. res.Identifier .. EOL
-      t[#t + 1] = "Length: " .. #a + #b .. EOL
-      t[#t + 1] = EOL
+      t[#t + 1] = "Length: " .. #dat
+      t[#t + 1] = EOB
 
-      t[#t + 1] = a
-      t[#t + 1] = b
+      t[#t + 1] = dat
       t[#t + 1] = EOL
     end
   end
@@ -582,14 +519,13 @@ function GNTPParser:next_message(password)
 
       if keyHash ~= etalonHash then return nil, "invalid password" end
       if encryptionAlgorithmID ~= 'NONE' and messageType ~= '-ERROR' then
-        local encrypt = ENCRYPT[encryptionAlgorithmID]
-        if not encrypt then
+        local enc = ENCRYPT[encryptionAlgorithmID]
+        if not enc then
           return nil, GNTPError_EAUTH('unsupported encrypt algorithm: ' .. encryptionAlgorithmID)
         end
 
-        local ivValue = hex_decode(ivValue)
-        ctx.decoder_ctor, ctx.decoder_key, ctx.decoder_iv = encrypt.decoder, encryptKey, ivValue
-        ctx.decrypt = true
+        ctx.encrypt_key, ctx.iv = encryptKey, hex_decode(ivValue)
+        ctx.decrypt = enc.decrypt
       end
     elseif encryptionAlgorithmID ~= 'NONE' and messageType ~= '-ERROR' then
       return nil, GNTPError_EPROTO('need password to decrypt message')
@@ -605,19 +541,21 @@ function GNTPParser:next_message(password)
       salt                  = salt
     }
 
-    ctx.state = (messageType == 'END') and 'done' or 'header'
+    if messageType == 'END' then ctx.state = 'done'
+    elseif ctx.decrypt then      ctx.state = 'decrypt'
+    else                         ctx.state = 'header' end
+
   end
 
-  if ctx.decrypt then
+  if ctx.state == 'decrypt' then
     local encrypted = self._buf:read_line(EOB)
     if not encrypted then return true end
-    local decoder = ctx.decoder_ctor(ctx.decoder_key, ctx.decoder_iv)
 
-    local decrypted = decoder:update(encrypted)
-    decrypted = decrypted .. (decoder:final() or '')
+    local decrypted, err = ctx.decrypt.digest(encrypted, ctx.encrypt_key, ctx.iv)
+    if not decrypted then return nil, err end
+
     self._buf:prepend(EOL):prepend(decrypted)
-
-    ctx.decrypt = false
+    ctx.state = 'header'
   end
 
   while ctx.state == 'header' do
@@ -719,18 +657,17 @@ function GNTPParser:next_message(password)
       if not res[0] then
         res[0] = self._buf:read(res.Length)
         if not res[0] then return true end
-        if ctx.decrypt ~= nil then
-          local decoder = ctx.decoder_ctor(ctx.decoder_key, ctx.decoder_iv)
-          local decoded = decoder:update(res[0])
-          decoded = decoded .. (decoder:final() or '')
-          res[0]  = decoded;
+        if ctx.decrypt then
+          local decoded, err = ctx.decrypt.digest(res[0], ctx.encrypt_key, ctx.iv)
+          if not decoded then return nil, err end
+          res[0] = decoded
         end
       end
 
       local eol = self._buf:read(4)
       if not eol then return true end
 
-      if eol ~= '\r\n\r\n' then
+      if eol ~= EOB then
         return nil, GNTPError_EPROTO("invalid resource eol")
       end
 
@@ -1060,7 +997,6 @@ local GNTP = {
   hex_decode         = hex_decode;
   hex_encode         = hex_encode;
   make_key           = make_key;
-  ENCRYPT            = ENCRYPT;
 }
 
 return GNTP
