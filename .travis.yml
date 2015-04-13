@@ -1,0 +1,41 @@
+language: c
+
+sudo: false
+
+env:
+  global:
+    - LUAROCKS=2.2.1
+  matrix:
+    - LUA=lua5.1
+    # - LUA=lua5.2
+    # - LUA=lua5.3
+    # - LUA=luajit
+    # - LUA=luajit2.0
+    # - LUA=luajit2.1
+
+branches:
+  only:
+    - master
+
+before_install:
+  - export PATH=${PATH}:$HOME/.lua
+  - bash .travis/setup_lua.sh
+  - bash .travis/setup_uv.sh
+  # - luarocks install luacov-coveralls
+  - luarocks install lunitx
+
+install:
+  - luarocks make rockspecs/gntp-scm-0.rockspec UV_DIR=$TRAVIS_BUILD_DIR/libuv
+
+script: 
+  - cd test
+  - lunit.sh test.lua
+
+# after_success:
+#   - coveralls -b .. -r .. --dump c.report.json
+#   - luacov-coveralls -j c.report.json -v
+
+notifications:
+  email:
+    on_success: change
+    on_failure: always
