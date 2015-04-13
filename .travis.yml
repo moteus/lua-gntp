@@ -18,8 +18,9 @@ branches:
     - master
 
 before_install:
-  - export PATH=${PATH}:$HOME/.lua
+  - export PATH=${PATH}:$HOME/.lua:${TRAVIS_BUILD_DIR}/install/luarocks/bin
   - bash .travis/setup_lua.sh
+  - eval `luarocks path`
   - bash .travis/setup_uv.sh
   # - luarocks install luacov-coveralls
   - luarocks install lunitx
