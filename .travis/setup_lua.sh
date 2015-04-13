@@ -12,6 +12,10 @@ LUAJIT_BASE="LuaJIT-2.0.3"
 
 source .travis/platform.sh
 
+LUA_HOME_DIR=$TRAVIS_BUILD_DIR/install/lua
+
+LR_HOME_DIR=$TRAVIS_BUILD_DIR/install/luarocks
+
 mkdir $HOME/.lua
 
 LUAJIT="no"
@@ -29,14 +33,6 @@ if [ "$PLATFORM" == "macosx" ]; then
 elif [ "$(expr substr $LUA 1 6)" == "luajit" ]; then
   LUAJIT="yes";
 fi
-
-if [ "$LUAJIT" == "yes" ]; then
-  LUA_HOME_DIR=$TRAVIS_BUILD_DIR/install/luajit;
-else
-  LUA_HOME_DIR=$TRAVIS_BUILD_DIR/install/lua;
-fi
-
-LR_HOME_DIR=$TRAVIS_BUILD_DIR/install/luarocks
 
 mkdir -p "$LUA_HOME_DIR"
 
