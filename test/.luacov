@@ -11,7 +11,7 @@ return {
   exclude     = {},
   coveralls   = {
     pathcorrect = {
-      {"/usr/local/share/lua/5.%d", "src/lua"};
+      {"^.-/share/lua/5.%d/", "src/lua/"};
     },
   },
 }
