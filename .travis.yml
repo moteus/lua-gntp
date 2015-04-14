@@ -20,7 +20,7 @@ branches:
 before_install:
   - source .travis/setenv_lua.sh
   - bash .travis/setup_uv.sh
-  # - luarocks install luacov-coveralls
+  - luarocks install luacov-coveralls
   - luarocks install lunitx
 
 install:
@@ -30,9 +30,8 @@ script:
   - cd test
   - lunit.sh test.lua
 
-# after_success:
-#   - coveralls -b .. -r .. --dump c.report.json
-#   - luacov-coveralls -j c.report.json -v
+after_success:
+  - luacov-coveralls -v
 
 notifications:
   email:

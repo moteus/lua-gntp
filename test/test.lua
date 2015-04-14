@@ -1,5 +1,7 @@
 package.path = "..\\src\\lua\\?.lua;" .. package.path
 
+pcall(require, "luacov")
+
 local utils       = require "utils"
 local TEST_CASE   = require "lunit".TEST_CASE
 local RUN, IT = utils.RUN, utils.IT
@@ -7,6 +9,12 @@ local RUN, IT = utils.RUN, utils.IT
 local print, require = print, require
 
 local GNTP = require "gntp"
+
+print("------------------------------------")
+print("Lua  version: " .. (_G.jit and _G.jit.version or _G._VERSION))
+print("GNTP version: " .. GNTP._VERSION)
+print("------------------------------------")
+print("")
 
 local ENABLE = true
 

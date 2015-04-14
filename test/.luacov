@@ -1,0 +1,17 @@
+return {
+  configfile  = ".luacov",
+  statsfile   = "luacov.stats.out",
+  reportfile  = "luacov.report.json",
+  runreport   = false,
+  deletestats = false,
+  include     = {
+    "/gntp$",
+    "/gntp/.+$",
+  },
+  exclude     = {},
+  coveralls   = {
+    pathcorrect = {
+      {"/usr/local/share/lua/5.%d", "src/lua"};
+    },
+  },
+}
