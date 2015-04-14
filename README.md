@@ -1,4 +1,8 @@
 # lua-gntp
+[![Build Status](https://travis-ci.org/moteus/lua-gntp.svg?branch=master)](https://travis-ci.org/moteus/lua-gntp)
+[![Coverage Status](https://coveralls.io/repos/moteus/lua-gntp/badge.svg)](https://coveralls.io/r/moteus/lua-gntp)
+[![License](http://img.shields.io/badge/License-MIT-brightgreen.svg)](LICENSE)
+
 Implementation of Growl Notify Transport Protocol (GNTP) for Lua
 
 ### Make common GNTP objects
