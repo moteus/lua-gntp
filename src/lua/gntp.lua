@@ -13,7 +13,7 @@
 local ut     = require "lluv.utils"
 local crypto = require "gntp.crypto"
 
-local _VERSION = '0.1.0-dev'
+local _VERSION = '0.1.0'
 
 local EOL = '\r\n'
 local EOB = EOL..EOL
