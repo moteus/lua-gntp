@@ -3,7 +3,7 @@ version = "scm-0"
 
 source = {
   url = "https://github.com/moteus/lua-gntp/archive/master.zip",
-  dir = "lua-lluv-gntp-master",
+  dir = "lua-gntp-master",
 }
 
 description = {

@@ -3,7 +3,7 @@ version = "0.1.0-1"
 
 source = {
   url = "https://github.com/moteus/lua-gntp/archive/v0.1.0.zip",
-  dir = "lua-lluv-gntp-0.1.0",
+  dir = "lua-gntp-0.1.0",
 }
 
 description = {
