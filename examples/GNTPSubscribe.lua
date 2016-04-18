@@ -77,25 +77,43 @@ local function GNTPListen(opt, cb)
         cli:start_read(function(cli, err, data)
           if err then return cli:close() end
           parser:append(data)
-          local msg, err = parser:next_message(opt.pass)
-          if not msg then
-            print('PARSER ERROR:', err)
-            return cli:close()
-          end
+          local msg, err = parser:next_message(opt.pass, true)
           if msg == true then return end
-          cb(cli, msg)
+          return cb(cli, err, msg)
         end)
       end
     end)
   end)
 end
 
-local response = GNTP.Message.new("-OK")
-local function OnMessage(cli, msg)
-  print(msg:encode())
-  local nid = msg:header('Notification-ID')
+local function OnMessage(cli, err, msg)
+  local response = GNTP.Message.new()
 
-  response:add_header('Notification-ID', nid)
+  if err then
+    print("RECV ERROR:", tostring(err))
+    if err:cat() ~= 'GNTP' then
+      return cli:close()
+    end
+
+    if err:name() == 'EAUTH' then
+      response:set_info('-ERROR')
+        :add_header('Error-Code', '400')
+        :add_header('Error-Description', 'The request supplied a missing or wrong password/key or was otherwise not authorized')
+    end
+  else
+    response:set_info('-OK', options.hash, options.encrypt)
+  end
+
+  if msg then
+    response
+      :add_header('Notification-ID', msg:header('Notification-ID'))
+      :add_header('Response-Action', msg:status())
+  end
+
+  local pass = (response:status() == '-OK') and options.pass
+
+  print(response:encode(pass))
+
   cli:write(response:encode())
 end
 

@@ -488,7 +488,12 @@ function GNTPParser:_skip_trash()
   end
 end
 
-function GNTPParser:next_message(password)
+function GNTPParser:_return_error(err)
+  self:_reset_context()
+  return nil, err
+end
+
+function GNTPParser:next_message(password, accept_unauth)
   local ctx       = self._ctx
   local headers   = ctx.headers
   local notices   = ctx.notices
@@ -501,32 +506,36 @@ function GNTPParser:next_message(password)
     local version, messageType, encryptionAlgorithmID, ivValue,
       keyHashAlgorithmID, keyHash, salt = parse_request_info(line)
     if not version then
-      return nil, GNTPError_EPROTO(messageType, line)
+      return self:_return_error(GNTPError_EPROTO(messageType, line))
     end
 
     if keyHashAlgorithmID then
       if not password then
-        return nil, GNTPError_EAUTH('no password provided')
+        return self:_return_error(GNTPError_EAUTH('no password provided'))
       end
 
       local keyHash, salt = hex_decode(keyHash), hex_decode(salt)
       local etalonHash, err, encryptKey = make_key(keyHashAlgorithmID, password, salt)
       if not etalonHash then
-        return nil, GNTPError_EAUTH(err, keyHashAlgorithmID)
+        return self:_return_error(GNTPError_EAUTH(err, keyHashAlgorithmID))
       end
 
-      if keyHash ~= etalonHash then return nil, GNTPError_EAUTH("invalid password") end
-      if encryptionAlgorithmID ~= 'NONE' and messageType ~= '-ERROR' then
+      if keyHash ~= etalonHash then
+        ctx.auth_error = GNTPError_EAUTH("invalid password")
+        if (not accept_unauth) or (encryptionAlgorithmID ~= 'NONE') then
+          return self:_return_error(ctx.auth_error)
+        end
+      elseif encryptionAlgorithmID ~= 'NONE' and messageType ~= '-ERROR' then
         local enc = crypto.cipher[encryptionAlgorithmID]
         if not enc then
-          return nil, GNTPError_EAUTH('unsupported encrypt algorithm: ' .. encryptionAlgorithmID)
+          return self:_return_error(GNTPError_EAUTH('unsupported encrypt algorithm: ' .. encryptionAlgorithmID))
         end
 
         ctx.encrypt_key, ctx.iv = encryptKey, hex_decode(ivValue)
         ctx.decrypt = enc.decrypt
       end
     elseif encryptionAlgorithmID ~= 'NONE' and messageType ~= '-ERROR' then
-      return nil, GNTPError_EPROTO('need password to decrypt message')
+      return self:_return_error(GNTPError_EPROTO('need password to decrypt message'))
     end
 
     ctx.info = {
@@ -550,7 +559,7 @@ function GNTPParser:next_message(password)
     if not encrypted then return true end
 
     local decrypted, err = ctx.decrypt(encrypted, ctx.encrypt_key, ctx.iv)
-    if not decrypted then return nil, err end
+    if not decrypted then return self:_return_error(err) end
 
     self._buf:prepend(EOL):prepend(decrypted)
     ctx.state = 'header'
@@ -575,7 +584,7 @@ function GNTPParser:next_message(password)
 
     local key, val = ut.split_first(line, "%s*:%s*")
     if not val then
-      return nil, GNTPError_EPROTO("invalid header: " .. line)
+      return self:_return_error(GNTPError_EPROTO("invalid header: " .. line))
     end
 
     if key == 'Received' then
@@ -603,7 +612,7 @@ function GNTPParser:next_message(password)
 
         local key, val = ut.split_first(line, "%s*:%s*")
         if not val then
-          return nil, GNTPError_EPROTO("invalid header: " .. line)
+          return self:_return_error(GNTPError_EPROTO("invalid header: " .. line))
         end
         note[key] = self:_check_res(val)
       end
@@ -631,22 +640,24 @@ function GNTPParser:next_message(password)
           end
 
           local key, val = ut.split_first(line, "%s*:%s*")
-          if not val then return "invalid header: " .. line end
+          if not val then
+            return self:_return_error(GNTPError_EPROTO("invalid header: " .. line))
+          end
 
           res[key] = rtrim(val)
         end
 
         if not res.Identifier then
-          return nil, GNTPError_EPROTO("invalid resouce message")
+          return self:_return_error(GNTPError_EPROTO("invalid resouce message"))
         end
 
         if not resources.set[res.Identifier] then
-          return nil, GNTPError_EPROTO("unknown resource: " .. res.Identifier)
+          return self:_return_error(GNTPError_EPROTO("unknown resource: " .. res.Identifier))
         end
 
         local size = tonumber(res.Length)
         if not size then
-          return nil, GNTPError_EPROTO("invalid header Length:" .. res.Length)
+          return self:_return_error(GNTPError_EPROTO("invalid header Length:" .. res.Length))
         end
 
         res.Length = size
@@ -666,7 +677,7 @@ function GNTPParser:next_message(password)
       if not eol then return true end
 
       if eol ~= EOB then
-        return nil, GNTPError_EPROTO("invalid resource eol")
+        return self:_return_error(GNTPError_EPROTO("invalid resource eol"))
       end
 
       res.Length = nil
@@ -684,8 +695,10 @@ function GNTPParser:next_message(password)
   for i = 1, #notices do msg._notices[i] = notices[i] end
   for i = 1, #resources do msg._resources[i] = resources[i] end
 
+  local auth_error = ctx.auth_error
   self:_reset_context()
-  return msg
+
+  return msg, auth_error
 end
 
 function GNTPParser:reset()
