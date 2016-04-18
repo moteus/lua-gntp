@@ -504,8 +504,8 @@ function GNTPParser:next_message(password)
       return nil, GNTPError_EPROTO(messageType, line)
     end
 
-    if password then
-      if not keyHashAlgorithmID then
+    if keyHashAlgorithmID then
+      if not password then
         return nil, GNTPError_EAUTH('no password provided')
       end
 
