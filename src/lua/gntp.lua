@@ -515,7 +515,7 @@ function GNTPParser:next_message(password)
         return nil, GNTPError_EAUTH(err, keyHashAlgorithmID)
       end
 
-      if keyHash ~= etalonHash then return nil, "invalid password" end
+      if keyHash ~= etalonHash then return nil, GNTPError_EAUTH("invalid password") end
       if encryptionAlgorithmID ~= 'NONE' and messageType ~= '-ERROR' then
         local enc = crypto.cipher[encryptionAlgorithmID]
         if not enc then
