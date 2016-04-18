@@ -43,7 +43,7 @@ function Connector:_send(msg, only_last, cb)
   local cli = uv.tcp():connect(self._host, self._port, function(cli, err)
     if err then
       cli:close()
-      return cb(err)
+      return cb(self, err)
     end
 
     cli:write(encoded)
