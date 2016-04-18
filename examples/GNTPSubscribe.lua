@@ -31,10 +31,6 @@ local function GNTPSubscribe(opt, cb)
     :add_header('Subscriber-Name', opt.sname)
     :add_header('Subscriber-Port', opt.sport or '23053')
 
-  if opt.ttl then
-    msg:add_header('Subscriber-Port', opt.sport or '23053')
-  end
-
   uv.tcp():connect(opt.host or "127.0.0.1", opt.port or 23053, function(cli, err)
     if err then
       cli:close()
