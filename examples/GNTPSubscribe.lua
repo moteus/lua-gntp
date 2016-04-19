@@ -95,10 +95,15 @@ local function OnMessage(cli, err, msg)
       return cli:close()
     end
 
+    response:set_info('-ERROR')
     if err:name() == 'EAUTH' then
-      response:set_info('-ERROR')
+      response
         :add_header('Error-Code', '400')
         :add_header('Error-Description', 'The request supplied a missing or wrong password/key or was otherwise not authorized')
+    else
+      response
+        :add_header('Error-Code', '300')
+        :add_header('Error-Description', 'The request contained an unsupported directive, invalid headers or values, or was otherwise malformed')
     end
   else
     response:set_info('-OK', options.hash, options.encrypt)
@@ -112,9 +117,7 @@ local function OnMessage(cli, err, msg)
 
   local pass = (response:status() == '-OK') and options.pass
 
-  print(response:encode(pass))
-
-  cli:write(response:encode())
+  cli:write(response:encode(pass))
 end
 
 GNTPListen({
