@@ -21,7 +21,6 @@ matrix:
 cache:
   directories:
     - here
-    - libuv
     - $HOME/.cache/pip
 
 branches:
@@ -33,10 +32,9 @@ before_install:
   - pip install --user hererocks
   - hererocks here -r^ --$LUA
   - export PATH=$PATH:$PWD/here/bin
-  - luarocks show lluv || bash .travis/setup_uv.sh
 
 install:
-  - luarocks make rockspecs/gntp-scm-0.rockspec UV_DIR=$TRAVIS_BUILD_DIR/libuv
+  - luarocks make rockspecs/gntp-scm-0.rockspec
 
 before_script:
   - luarocks show lunitx           || luarocks install lunitx

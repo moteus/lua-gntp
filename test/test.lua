@@ -9,14 +9,25 @@ local RUN, IT = utils.RUN, utils.IT
 local print, require = print, require
 
 local GNTP = require "gntp"
+local ut   = require "GNTP.utils"
 
 print("------------------------------------")
-print("Lua  version: " .. (_G.jit and _G.jit.version or _G._VERSION))
-print("GNTP version: " .. GNTP._VERSION)
+print("Module    name: " .. GNTP._NAME);
+print("Module version: " .. GNTP._VERSION);
+print("Lua    version: " .. (_G.jit and _G.jit.version or _G._VERSION))
 print("------------------------------------")
 print("")
 
 local ENABLE = true
+
+local _ENV = TEST_CASE'gntp.self_test' if ENABLE then
+local it = IT(_ENV)
+
+it('should pass self test', function()
+  ut.self_test()
+end)
+
+end
 
 local _ENV = TEST_CASE'gntp.application' if ENABLE then
 

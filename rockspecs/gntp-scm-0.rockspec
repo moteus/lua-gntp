@@ -17,7 +17,10 @@ description = {
 
 dependencies = {
   "lua >= 5.1, < 5.4",
-  "lluv > 0.1.1",
+  -- "openssl",
+  -- "luacrypto",
+  -- "luasocket",
+  -- "lluv",
 }
 
 build = {

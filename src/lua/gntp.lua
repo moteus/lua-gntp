@@ -2,7 +2,7 @@
 --
 --  Author: Alexey Melnichuk <alexeymelnichuck@gmail.com>
 --
---  Copyright (C) 2015 Alexey Melnichuk <alexeymelnichuck@gmail.com>
+--  Copyright (C) 2015-2016 Alexey Melnichuk <alexeymelnichuck@gmail.com>
 --
 --  Licensed according to the included 'LICENSE' document
 --
@@ -10,10 +10,15 @@
 --
 ------------------------------------------------------------------
 
-local ut     = require "lluv.utils"
+local ut     = require "gntp.utils"
 local crypto = require "gntp.crypto"
 
-local _VERSION = '0.1.1-dev'
+local GNTP = {
+  _NAME      = "gntp";
+  _VERSION   = "0.1.1-dev";
+  _COPYRIGHT = "Copyright (C) 2015-2016 Alexey Melnichuk";
+  _LICENSE   = "MIT";
+}
 
 local EOL = '\r\n'
 local EOB = EOL..EOL
@@ -55,6 +60,14 @@ end
 local function is_grown_res(val)
   if type(val) ~= 'string' then return end
   return string.match(val, "^x%-growl%-resource://(%S+)%s*$")
+end
+
+local function clone(t, o)
+  o = o or {}
+  for k, v in pairs(t) do
+    o[k] = v
+  end
+  return o
 end
 
 local function ltrim(s)
@@ -996,8 +1009,7 @@ local Connector = setmetatable({},{
   end;
 })
 
-local GNTP = {
-  _VERSION     = _VERSION;
+GNTP = clone(GNTP, {
   Resource     = GNTPResource;
   Message      = GNTPMessage;
   Parser       = GNTPParser;
@@ -1009,6 +1021,6 @@ local GNTP = {
   hex_decode         = hex_decode;
   hex_encode         = hex_encode;
   make_key           = make_key;
-}
+})
 
 return GNTP

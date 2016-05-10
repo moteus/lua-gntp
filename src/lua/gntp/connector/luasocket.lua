@@ -2,7 +2,7 @@
 --
 --  Author: Alexey Melnichuk <alexeymelnichuck@gmail.com>
 --
---  Copyright (C) 2015 Alexey Melnichuk <alexeymelnichuck@gmail.com>
+--  Copyright (C) 2015-2016 Alexey Melnichuk <alexeymelnichuck@gmail.com>
 --
 --  Licensed according to the included 'LICENSE' document
 --
@@ -11,7 +11,7 @@
 ------------------------------------------------------------------
 
 local GNTP   = require "gntp"
-local ut     = require "lluv.utils"
+local ut     = require "gntp.utils"
 
 local Connector = ut.class() do
 
