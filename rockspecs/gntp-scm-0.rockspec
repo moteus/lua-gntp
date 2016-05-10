@@ -30,6 +30,7 @@ build = {
 
   modules = {
     [ "gntp"                     ] = "src/lua/gntp.lua",
+    [ "gntp.utils"               ] = "src/lua/gntp/utils.lua",
     [ "gntp.crypto"              ] = "src/lua/gntp/crypto.lua",
     [ "gntp.connector.lluv"      ] = "src/lua/gntp/connector/lluv.lua",
     [ "gntp.connector.luasocket" ] = "src/lua/gntp/connector/luasocket.lua",

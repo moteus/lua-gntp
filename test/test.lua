@@ -9,7 +9,7 @@ local RUN, IT = utils.RUN, utils.IT
 local print, require = print, require
 
 local GNTP = require "gntp"
-local ut   = require "GNTP.utils"
+local ut   = require "gntp.utils"
 
 print("------------------------------------")
 print("Module    name: " .. GNTP._NAME);
