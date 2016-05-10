@@ -15,7 +15,7 @@ local crypto = require "gntp.crypto"
 
 local GNTP = {
   _NAME      = "gntp";
-  _VERSION   = "0.1.1";
+  _VERSION   = "0.1.2-dev";
   _COPYRIGHT = "Copyright (C) 2015-2016 Alexey Melnichuk";
   _LICENSE   = "MIT";
 }
