@@ -360,7 +360,7 @@ function GNTPMessage:add_resource(id, data)
     id, data = id:id(), id:data()
   elseif not data then
     data = id
-    id   = hex_encode(HASH.MD5:digest(data))
+    id   = hex_encode(crypto.hash.MD5.digest(data))
   end
 
   for i = 1, #self._resources do
