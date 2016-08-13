@@ -36,10 +36,10 @@ function Connector:__init(app, opt)
 end
 
 function Connector:_send(msg)
-  local cli = socket.tcp()
+  local cli = self._create()
 
-  if socket._timeout then
-    cli:settimeout(socket._timeout)
+  if self._timeout then
+    cli:settimeout(self._timeout)
   end
 
   local ok, err = cli:connect(self._host, self._port)
